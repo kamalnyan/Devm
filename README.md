@@ -127,6 +127,8 @@ $ devm --a2a "fix the razorpay webhook signature bug"
 | `devm --agent auto "task"` | Auto-pick the best available agent |
 | `devm --council "task"` | Sequential pipeline: each agent builds on the last |
 | `devm --a2a "task"` | **Agents talk to each other via @mentions** |
+| `devm --a2a --edit "task"` | A2A council → **apply file changes** (with permission + tests) |
+| `devm --a2a --yolo "task"` | A2A council → **apply everything instantly** (no prompts, no guards) |
 | `devm --solve "task"` | Ollama solves it locally, streams to terminal |
 | `devm --bg --a2a "task"` | Run in background, check result later |
 | `devm jobs` | See all background jobs |
@@ -254,6 +256,62 @@ No code changes. It joins every future council automatically.
 
 ---
 
+## ✏️ Edit Mode & ⚡ YOLO Mode — Actually Apply the Fixes
+
+Until now, Devm showed you what agents suggested. These two modes make it **actually do the work**.
+
+### `--edit` — Controlled file editing
+
+```bash
+devm --a2a --edit "fix the webhook signature bug"
+devm --council --edit "add null guard to payment processor"
+devm --agent claude --edit "refactor auth middleware"
+```
+
+What happens:
+1. Agents run normally and produce output
+2. Devm scans the output for file changes (diffs, code blocks, "Edit `file.ts`" instructions)
+3. For each change found, shows a **colored diff** in your terminal
+4. Asks `[A]pply [S]kip [Q]uit` for each file
+5. Applies approved changes (backups created before every write)
+6. Runs your test suite automatically after all edits
+7. If tests fail — offers to **rollback** all changes
+
+**What's blocked in edit mode:**
+- `.env`, `.env.local`, `*.secret`, any credentials/passwords file
+- Production/release directories
+- `node_modules`, `.git`, `dist`, `build`
+
+### `--yolo` — Full auto (no restrictions)
+
+```bash
+devm --a2a --yolo "fix all TypeScript errors"
+devm --council --yolo "add logging to every API endpoint"
+```
+
+What happens:
+- Everything auto-approved — no prompts
+- All file edits applied immediately
+- All commands agents suggest run automatically
+- No blocked paths, no guards
+- Big `⚡ YOLO MODE` warning printed at start
+
+```
+  ╭──────────────────────────────────────────────────╮
+  │  ⚡ YOLO MODE — no restrictions                  │
+  │                                                  │
+  │  All changes auto-approved.                      │
+  │  All commands auto-run.                          │
+  │  No guards. No prompts. No backups required.     │
+  │                                                  │
+  │  You asked for it ¯\_(ツ)_/¯                     │
+  ╰──────────────────────────────────────────────────╯
+```
+
+> Use `--yolo` in throwaway branches or when you trust the agents completely. Use `--edit` for production codebases.
+
+---
+
 ## 🔐 Permission Prompts
 
 When an agent suggests running a command, Devm asks you first:
@@ -356,6 +414,8 @@ devmanager/
 ├── council.py       # Sequential pipeline mode
 ├── agent_bridge.py  # Agent plugin registry — discover + run any CLI
 ├── cli.py           # All commands
+├── edit_mode.py     # --edit / --yolo: extract + apply file changes from agent output
+├── patch.py         # Patch extractor (diffs, code blocks) + file writer + backup
 ├── handoff.py       # Prompt builder — skills + code search + constraints
 ├── router.py        # Task routing — local rules + Ollama
 ├── solver.py        # Direct LLM call with streaming

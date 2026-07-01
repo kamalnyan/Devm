@@ -195,11 +195,16 @@ def _run_direct(args: argparse.Namespace, task: str) -> int:
             interactive=True,
         )
         session = a2a.run()
+        combined_output = session.chat_log()
         save_run_record(
             task=task, repo=str(repo_root),
-            evidence={"handoff": handoff, "a2a_chat": session.chat_log()},
+            evidence={"handoff": handoff, "a2a_chat": combined_output},
             compact=_compact_handoff(handoff), gui_result=None,
         )
+        # Edit/Yolo: apply file changes from agent output
+        if getattr(args, "edit", False) or getattr(args, "yolo", False):
+            from .edit_mode import run_edit_mode
+            run_edit_mode(combined_output, str(repo_root), yolo=getattr(args, "yolo", False))
         return 0
 
     if args.council:
@@ -221,6 +226,10 @@ def _run_direct(args: argparse.Namespace, task: str) -> int:
             evidence={"handoff": handoff, "council_transcript": transcript},
             compact=_compact_handoff(handoff), gui_result=None,
         )
+        # Edit/Yolo: apply file changes from agent output
+        if getattr(args, "edit", False) or getattr(args, "yolo", False):
+            from .edit_mode import run_edit_mode
+            run_edit_mode(transcript, str(repo_root), yolo=getattr(args, "yolo", False))
         return 0
 
     # ── ADK Council mode: GLM4 orchestrates agents via ADK ────────────────
@@ -260,6 +269,10 @@ def _run_direct(args: argparse.Namespace, task: str) -> int:
         save_run_record(task=task, repo=str(repo_root),
                         evidence={"handoff": handoff},
                         compact=_compact_handoff(handoff), gui_result=None)
+        # Edit/Yolo: apply file changes from agent output
+        if result["ok"] and (getattr(args, "edit", False) or getattr(args, "yolo", False)):
+            from .edit_mode import run_edit_mode
+            run_edit_mode(result.get("output", ""), str(repo_root), yolo=getattr(args, "yolo", False))
         return 0 if result["ok"] else 1
 
     # ── Solve mode: call LLM directly, stream answer ──────────────────────
@@ -591,6 +604,12 @@ def _build_parser() -> argparse.ArgumentParser:
                         help="Run solve in background. Returns job ID immediately. Use 'devm result <id>' to check.")
     parser.add_argument("--a2a", action="store_true",
                         help="A2A council: agents genuinely talk to each other via @mentions. Real bidirectional communication.")
+    parser.add_argument("--edit", action="store_true",
+                        help="Edit mode: extract file changes from agent output and apply them with permission prompts. "
+                             "Runs tests after. Blocks secrets/production files.")
+    parser.add_argument("--yolo", action="store_true",
+                        help="YOLO mode: fully unrestricted. Auto-approve all file edits and commands. No guards, no prompts. "
+                             "⚠️  Use only in throwaway branches.")
     parser.add_argument("--council", action="store_true",
                         help="Run multi-agent council: Planner→Explorer→Analyst→Reviewer→Synthesizer (sequential pipeline).")
     parser.add_argument("--adk-council", action="store_true",
