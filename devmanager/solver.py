@@ -77,6 +77,7 @@ def _solve_ollama(prompt: str, cfg: dict[str, Any], stream: bool) -> str:
     )
 
     collected: list[str] = []
+    prompt_tokens = completion_tokens = 0
     try:
         with urllib.request.urlopen(req, timeout=cfg.get("timeout", 120)) as resp:
             for chunk in _iter_ndjson(resp):
@@ -86,6 +87,8 @@ def _solve_ollama(prompt: str, cfg: dict[str, Any], stream: bool) -> str:
                     if stream:
                         print(token, end="", flush=True)
                 if chunk.get("done"):
+                    prompt_tokens     = chunk.get("prompt_eval_count", 0)
+                    completion_tokens = chunk.get("eval_count", 0)
                     break
     except (OSError, urllib.error.URLError, TimeoutError) as exc:
         msg = f"\n[solver] Ollama error: {exc}\n  Is ollama running? Run: ollama serve"
@@ -94,6 +97,17 @@ def _solve_ollama(prompt: str, cfg: dict[str, Any], stream: bool) -> str:
 
     if stream:
         print()  # final newline
+
+    # Record actual token counts (Ollama reports them exactly)
+    agent_label = f"ollama/{model.split(':')[0]}"
+    if prompt_tokens or completion_tokens:
+        from .token_tracker import track
+        track(agent_label, prompt_tokens=prompt_tokens,
+              completion_tokens=completion_tokens, source="actual")
+    else:
+        from .token_tracker import estimate_and_track
+        estimate_and_track(agent_label, full_prompt, "".join(collected))
+
     return "".join(collected)
 
 
@@ -149,6 +163,7 @@ def _solve_litellm(prompt: str, cfg: dict[str, Any], stream: bool) -> str:
         kwargs["api_base"] = base_url
 
     collected: list[str] = []
+    final_response = None
     try:
         response = completion(**kwargs)
         if stream:
@@ -159,6 +174,7 @@ def _solve_litellm(prompt: str, cfg: dict[str, Any], stream: bool) -> str:
                     print(token, end="", flush=True)
             print()
         else:
+            final_response = response
             text = response.choices[0].message.content or ""
             collected.append(text)
     except Exception as exc:
@@ -167,6 +183,21 @@ def _solve_litellm(prompt: str, cfg: dict[str, Any], stream: bool) -> str:
         if env_key:
             print(f"  Check: export {env_key}=your-key", file=sys.stderr)
         return ""
+
+    # Record token usage from API response
+    agent_label = f"{provider}/{cfg.get('model', '?').split(':')[0].split('/')[-1]}"
+    try:
+        from .token_tracker import track, estimate_and_track
+        usage = getattr(final_response, "usage", None) if final_response else None
+        if usage and hasattr(usage, "prompt_tokens"):
+            track(agent_label,
+                  prompt_tokens=usage.prompt_tokens or 0,
+                  completion_tokens=usage.completion_tokens or 0,
+                  source="actual")
+        else:
+            estimate_and_track(agent_label, prompt, "".join(collected))
+    except Exception:
+        pass
 
     return "".join(collected)
 

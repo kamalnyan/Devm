@@ -664,6 +664,13 @@ class A2ACouncil:
         print(f"{C['bold']}✓  A2A Council complete{C['reset']}  {C['dim']}{t:.1f}s · {n} messages · {exchanges} direct exchanges · agents: {', '.join(agents_used)}{C['reset']}")
         _sep("═", C["bold"])
 
+        # Token usage summary
+        try:
+            from .token_tracker import print_task_summary
+            print_task_summary("A2A session")
+        except Exception:
+            pass
+
         if self.interactive:
             try:
                 ans = input(f"\n  {C['dim']}Save chat log? [y/N]{C['reset']} > ").strip().lower()

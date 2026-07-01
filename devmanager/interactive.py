@@ -543,6 +543,13 @@ def run_agent_interactive(
             if cmd_results:
                 output += "\n\nCommand results:\n" + "\n".join(cmd_results)
 
+    # Estimate token usage for CLI agents (no API to query exact counts)
+    try:
+        from .token_tracker import estimate_and_track
+        estimate_and_track(agent_key, prompt, output)
+    except Exception:
+        pass
+
     return {
         "ok": rc == 0,
         "output": output,
@@ -578,6 +585,7 @@ def run_ollama_interactive(
             headers={"Content-Type": "application/json"},
         )
         output_parts: list[str] = []
+        prompt_tokens = completion_tokens = 0
         with urllib.request.urlopen(req, timeout=120) as resp:
             for raw_line in resp:
                 try:
@@ -596,9 +604,25 @@ def run_ollama_interactive(
                     sys.stdout.flush()
                     output_parts.append(token)
                 if obj.get("done"):
+                    prompt_tokens     = obj.get("prompt_eval_count", 0)
+                    completion_tokens = obj.get("eval_count", 0)
                     break
         print()
-        return "".join(output_parts).strip()
+        result = "".join(output_parts).strip()
+
+        # Record actual Ollama token counts
+        agent_label = f"ollama/{model.split(':')[0]}"
+        try:
+            from .token_tracker import track, estimate_and_track
+            if prompt_tokens or completion_tokens:
+                track(agent_label, prompt_tokens=prompt_tokens,
+                      completion_tokens=completion_tokens, source="actual")
+            else:
+                estimate_and_track(agent_label, prompt, result)
+        except Exception:
+            pass
+
+        return result
     except Exception as exc:
         spinner.__exit__(None, None, None)
         print(f"\n  {C['red']}Ollama error: {exc}{C['reset']}")
@@ -893,6 +917,13 @@ class InteractiveCouncil:
         _sep("═", C["bold"])
         print(f"{C['bold']}✓  Council complete{C['reset']}  {C['dim']}{t:.1f}s · {n} turns · agents: {', '.join(agents_used)}{C['reset']}")
         _sep("═", C["bold"])
+
+        # Token usage summary
+        try:
+            from .token_tracker import print_task_summary
+            print_task_summary("council session")
+        except Exception:
+            pass
 
         # Ask user if they want to save the transcript
         if self.interactive:

@@ -133,6 +133,8 @@ def _parse_line(line: str, session: ReplSession) -> dict:
         return {"meta": "clear"}
     if lower == "history":
         return {"meta": "history"}
+    if lower in ("tokens", "usage", "token"):
+        return {"meta": "tokens"}
     if lower in ("help", "?"):
         return {"meta": "help"}
     if lower.startswith("mode "):
@@ -347,6 +349,17 @@ def _handle_meta(cmd: dict, session: ReplSession) -> bool:
         _print_history(session)
         return True
 
+    if meta == "tokens":
+        try:
+            from .token_tracker import print_session_summary, print_task_summary, session_total
+            if session_total() > 0:
+                print_session_summary()
+            else:
+                print(f"  {DIM}No token data yet — run a task first.{RESET}")
+        except Exception as e:
+            print(f"  {DIM}Token data unavailable: {e}{RESET}")
+        return True
+
     if meta == "mode":
         value = cmd["value"]
         if value == "a2a":
@@ -423,6 +436,7 @@ def _print_help(session: ReplSession) -> None:
   {CYAN}repo /path/to/project{RESET} → switch project
 
   {CYAN}history{RESET}              → recent tasks this session
+  {CYAN}tokens{RESET}               → token usage per agent (this session)
   {CYAN}agents{RESET}               → show discovered AI CLIs
   {CYAN}clear{RESET}                → clear screen
   {CYAN}exit{RESET}                 → quit
@@ -431,7 +445,14 @@ def _print_help(session: ReplSession) -> None:
 
 def _print_goodbye(session: ReplSession) -> None:
     n = len(session.history)
-    print(f"\n  {DIM}Session ended · {n} task(s) run{RESET}\n")
+    print(f"\n  {DIM}Session ended · {n} task(s) run{RESET}")
+    try:
+        from .token_tracker import print_session_summary, session_total
+        if session_total() > 0:
+            print_session_summary()
+    except Exception:
+        pass
+    print()
 
 
 def _print_task_result(ok: bool, elapsed: float) -> None:
@@ -500,6 +521,13 @@ def run_repl(repo: str, llm_cfg: dict) -> None:
         mode = _mode_name(flags)
 
         print(f"\n  {DIM}Task: {task[:70]}{RESET}  {DIM}[{mode}]{RESET}\n")
+
+        # Reset per-task token counter before each task
+        try:
+            from .token_tracker import reset_task as _tok_reset
+            _tok_reset()
+        except Exception:
+            pass
 
         start = time.time()
         try:
