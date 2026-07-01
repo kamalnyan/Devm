@@ -91,9 +91,21 @@ def main(argv: list[str] | None = None) -> int:
     task = " ".join(args.task).strip()
     if not task and not sys.stdin.isatty():
         task = sys.stdin.read().strip()
-    if not task:
-        print("Task missing. Example:  devm --repo /path/to/project \"payment issue debug karo\"")
-        return 2
+
+    # No task given (or --repl flag) → enter interactive REPL
+    if not task or getattr(args, "repl", False):
+        from .repl import run_repl
+        user_cfg = load_user_config()
+        llm_cfg = {**user_cfg}
+        if args.provider:
+            llm_cfg["provider"] = args.provider
+        if args.model != "glm4:latest":
+            llm_cfg["model"] = args.model
+        if args.api_key:
+            llm_cfg["api_key"] = args.api_key
+        repo_root = str(Path(args.repo).expanduser().resolve())
+        run_repl(repo=repo_root, llm_cfg=llm_cfg)
+        return 0
 
     if args.no_submit:
         args.submit = False
@@ -598,6 +610,9 @@ def _build_parser() -> argparse.ArgumentParser:
                         help="Fail instead of falling back when Ollama is unavailable.")
     parser.add_argument("--run-safe", action="store_true", help="Run allowlisted safe verification commands.")
     # Autonomous solve flags
+    parser.add_argument("--repl", action="store_true",
+                        help="Enter interactive session — run multiple tasks without restarting. "
+                             "Also triggered when no task is given.")
     parser.add_argument("--solve", action="store_true",
                         help="Call LLM directly with full handoff prompt — no GUI needed. Streams answer to terminal.")
     parser.add_argument("--bg", action="store_true",
