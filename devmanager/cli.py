@@ -874,8 +874,7 @@ def _run_agent_add_wizard() -> int:
          "cli": ["Contents/Resources/goose", "Contents/MacOS/goose"]},
         {"app": "Amp.app",            "key": "amp",        "name": "Sourcegraph Amp",
          "cli": ["Contents/Resources/amp",   "Contents/MacOS/amp"]},
-        {"app": "Antigravity.app",    "key": "antigravity","name": "Antigravity",
-         "cli": ["Contents/MacOS/antigravity", "Contents/Resources/antigravity"]},
+        # Antigravity is a GUI-only IDE — no CLI interface, skip it
         {"app": "GitHub Desktop.app", "key": "gh",         "name": "GitHub Copilot CLI",
          "cli": []},
     ]

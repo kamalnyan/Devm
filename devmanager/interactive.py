@@ -188,9 +188,23 @@ def _print_handoff(from_role: str, to_role: str, summary: str) -> None:
     )
 
 
+def _fmt_elapsed(seconds: float) -> str:
+    """Format elapsed time like Claude Code: 42s → 42s, 90s → 1:30, 3700s → 1:01:40"""
+    s = int(seconds)
+    if s < 60:
+        return f"{s}s"
+    elif s < 3600:
+        return f"{s // 60}:{s % 60:02d}"
+    else:
+        h = s // 3600
+        m = (s % 3600) // 60
+        sec = s % 60
+        return f"{h}:{m:02d}:{sec:02d}"
+
+
 def _elapsed_badge(elapsed: float, ok: bool) -> str:
     icon = f"{C['green']}✓{C['reset']}" if ok else f"{C['red']}✗{C['reset']}"
-    return f"{icon}  {C['dim']}{elapsed:.1f}s{C['reset']}"
+    return f"{icon}  {C['dim']}{_fmt_elapsed(elapsed)}{C['reset']}"
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -316,8 +330,8 @@ class Spinner:
                 msg_i += 1
                 self._override_msg = None  # clear override after one cycle
 
-            # Format: ⠋  claude  Analyzing…  (12.3s)
-            elapsed_str = f"{C['dim']}({elapsed:.0f}s){C['reset']}" if elapsed > 3 else ""
+            # Format: ⠋  claude  Analyzing…  (1:23)
+            elapsed_str = f"{C['dim']}({_fmt_elapsed(elapsed)}){C['reset']}" if elapsed > 3 else ""
             line = (
                 f"\r  {rcolor}{frame}{C['reset']}  "
                 f"{acolor}{C['bold']}{self.agent}{C['reset']}  "
