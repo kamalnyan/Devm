@@ -333,7 +333,8 @@ class Spinner:
             # Format: ⠋  claude  Analyzing…  (1:23)
             elapsed_str = f"{C['dim']}({_fmt_elapsed(elapsed)}){C['reset']}" if elapsed > 3 else ""
             line = (
-                f"\r  {rcolor}{frame}{C['reset']}  "
+                f"\r\033[K"          # carriage return + clear entire line
+                f"  {rcolor}{frame}{C['reset']}  "
                 f"{acolor}{C['bold']}{self.agent}{C['reset']}  "
                 f"{C['dim']}{msg}{C['reset']}  "
                 f"{elapsed_str}"
@@ -467,6 +468,13 @@ def run_agent_interactive(
         return {"ok": False, "output": "", "error": f"Agent '{agent_key}' not found"}
 
     info = agents[agent_key]
+
+    # GUI agents can't run headlessly in council/A2A mode
+    if info.get("kind") == "gui":
+        _role_header(role, agent_key)
+        print(f"  {C['dim']}⊘ {agent_key} is a GUI agent — skipped in council mode{C['reset']}")
+        return {"ok": False, "output": "", "error": "GUI agent skipped in council"}
+
     binary = info["binary"]
     cwd = str(Path(repo).expanduser().resolve()) if repo else str(Path.cwd())
     cmd, stdin_data = _build_command(agent_key, info, prompt, {})
@@ -692,20 +700,17 @@ class InteractiveCouncil:
         t0 = time.time()
         self._print_session_header()
 
-        # 1. Plan
-        subtasks = self._plan()
+        # 1. Plan — Ollama decides subtasks AND assigns one agent per role
+        subtasks, assignments = self._plan()
 
-        # 2. Explore — all exploration-suited agents
-        explorer_out = self._explore(subtasks)
+        # 2. Explore — assigned agent only
+        explorer_out = self._explore(subtasks, assignments.get("explorer", ""))
 
-        # 3. Analyse — all impl-suited agents
-        analyst_out = self._analyse(subtasks, explorer_out)
+        # 3. Analyse — different assigned agent
+        analyst_out = self._analyse(subtasks, explorer_out, assignments.get("analyst", ""))
 
-        # 4. Review — independent agents
-        reviewer_out = self._review(analyst_out, explorer_out)
-
-        # 5. Extra agents (any not yet used)
-        self._extra(subtasks, analyst_out, explorer_out)
+        # 4. Review — third assigned agent
+        reviewer_out = self._review(analyst_out, explorer_out, assignments.get("reviewer", ""))
 
         # 6. Synthesize
         final = self._synthesize()
@@ -717,163 +722,167 @@ class InteractiveCouncil:
 
     # ── Steps ─────────────────────────────────────────────────────────────
 
-    def _plan(self) -> str:
+    def _plan(self) -> tuple[str, dict[str, str]]:
+        """Ollama plans the task AND dynamically assigns agents to subtasks."""
+        cli_agents = [k for k, v in self.avail.items() if v.get("kind") != "gui"]
+        agent_list = ", ".join(
+            f"{k} (strengths: {', '.join(v.get('strengths', []))})"
+            for k, v in self.avail.items() if v.get("kind") != "gui"
+        ) or "ollama"
+
         prompt = (
-            f"You are a dev task planner. Break this task into 2-3 concrete subtasks.\n"
-            f"Be specific. Output ONLY a numbered list.\n\n"
-            f"Task: {self.task}\n\nRepo context:\n{self.handoff[:800]}"
+            f"You are a dev task orchestrator. Available AI agents: {agent_list}\n\n"
+            f"Task: {self.task}\n\nRepo context:\n{self.handoff[:800]}\n\n"
+            f"Do two things:\n"
+            f"1. Break the task into exactly 3 subtasks (numbered list)\n"
+            f"2. For each subtask, assign the BEST agent from the list above based on strengths\n\n"
+            f"Output format (follow exactly):\n"
+            f"SUBTASKS:\n"
+            f"1. <subtask description>\n"
+            f"2. <subtask description>\n"
+            f"3. <subtask description>\n\n"
+            f"ASSIGNMENTS:\n"
+            f"explorer: <agent_name>\n"
+            f"analyst: <agent_name>\n"
+            f"reviewer: <agent_name>\n\n"
+            f"Rules: each role gets a DIFFERENT agent if possible. Use only agent names from the list."
         )
         t0 = time.time()
         output = run_ollama_interactive(prompt, "planner", self.cfg)
         elapsed = time.time() - t0
         print(f"\n  {_elapsed_badge(elapsed, bool(output))}")
-        if not output:
-            output = f"1. Investigate {self.task}\n2. Find root cause\n3. Apply fix"
-        self.session.turns.append(AgentTurn("planner", "ollama", output, elapsed, True))
-        return output
 
-    def _explore(self, subtasks: str) -> str:
-        explorers = agents_for_role("explorer")
-        if not explorers:
-            explorers = list(self.avail.keys())[:1]
+        # Parse ASSIGNMENTS block
+        assignments: dict[str, str] = {}
+        if "ASSIGNMENTS:" in (output or ""):
+            for line in output.split("ASSIGNMENTS:", 1)[1].strip().splitlines():
+                line = line.strip()
+                if ":" in line:
+                    role, agent = line.split(":", 1)
+                    role = role.strip().lower()
+                    agent = agent.strip().lower()
+                    if agent in self.avail and self.avail[agent].get("kind") != "gui":
+                        assignments[role] = agent
 
-        combined: list[str] = []
-        for i, key in enumerate(explorers):
-            if i > 0:
-                _print_handoff("planner", "explorer", f"Now {key} also explores…")
-            prompt = (
-                f"You are a code explorer. READ ONLY — do NOT write code or fixes.\n\n"
-                f"Task: {self.task}\n\nSubtasks:\n{subtasks}\n\n"
-                f"Repo context:\n{self.handoff}\n\n"
-                f"Report:\n1. Relevant files (exact paths)\n"
-                f"2. Key functions/classes involved\n"
-                f"3. Root cause hypothesis\n"
-                f"4. Any contracts between modules"
-            )
-            _print_handoff("planner", "explorer", f"Subtasks ready → explore repo") if i == 0 else None
-            t0 = time.time()
-            result = run_agent_interactive(key, prompt, "explorer", self.repo, self.interactive)
+        # Fallback: assign roles from best-fit lists
+        cli_sorted = agents_for_role("explorer")
+        cli_sorted_cli = [k for k in cli_sorted if self.avail.get(k, {}).get("kind") != "gui"]
+        if "explorer" not in assignments:
+            assignments["explorer"] = cli_sorted_cli[0] if cli_sorted_cli else ""
+        an = agents_for_role("analyst")
+        an_cli = [k for k in an if self.avail.get(k, {}).get("kind") != "gui"]
+        if "analyst" not in assignments:
+            assignments["analyst"] = next((k for k in an_cli if k != assignments.get("explorer")), an_cli[0] if an_cli else "")
+        rv = agents_for_role("reviewer")
+        rv_cli = [k for k in rv if self.avail.get(k, {}).get("kind") != "gui"]
+        if "reviewer" not in assignments:
+            used = {assignments.get("explorer"), assignments.get("analyst")}
+            assignments["reviewer"] = next((k for k in rv_cli if k not in used), rv_cli[0] if rv_cli else "")
+
+        # Extract just the subtasks text
+        subtasks_text = output or ""
+        if "SUBTASKS:" in subtasks_text:
+            subtasks_text = subtasks_text.split("SUBTASKS:", 1)[1].split("ASSIGNMENTS:", 1)[0].strip()
+        if not subtasks_text:
+            subtasks_text = f"1. Investigate {self.task}\n2. Find root cause\n3. Apply fix"
+
+        # Print dynamic assignment summary
+        print(f"  {C['dim']}Assignment → explorer:{assignments.get('explorer','ollama')}  analyst:{assignments.get('analyst','ollama')}  reviewer:{assignments.get('reviewer','ollama')}{C['reset']}")
+
+        self.session.turns.append(AgentTurn("planner", "ollama", output or subtasks_text, elapsed, True))
+        return subtasks_text, assignments
+
+    def _explore(self, subtasks: str, agent_key: str) -> str:
+        prompt = (
+            f"You are a code explorer. READ ONLY — do NOT write code or fixes.\n\n"
+            f"Task: {self.task}\n\nSubtasks:\n{subtasks}\n\n"
+            f"Repo context:\n{self.handoff}\n\n"
+            f"Report:\n1. Relevant files (exact paths)\n"
+            f"2. Key functions/classes involved\n"
+            f"3. Root cause hypothesis\n"
+            f"4. Any contracts between modules"
+        )
+        _print_handoff("planner", "explorer", f"Subtasks ready → {agent_key} explores repo")
+        t0 = time.time()
+        if agent_key:
+            result = run_agent_interactive(agent_key, prompt, "explorer", self.repo, self.interactive)
             elapsed = time.time() - t0
             print(f"\n  {_elapsed_badge(elapsed, result['ok'])}")
             if result["output"]:
-                combined.append(f"=== {key} exploration ===\n{result['output']}")
-            self.session.turns.append(AgentTurn("explorer", key, result["output"], elapsed, result["ok"]))
+                self.session.turns.append(AgentTurn("explorer", agent_key, result["output"], elapsed, result["ok"]))
+                return result["output"]
 
-        if not combined:
-            # Ollama fallback
-            prompt = f"Explore this task and find relevant code:\nTask: {self.task}\n\nContext:\n{self.handoff}"
-            t0 = time.time()
-            out = run_ollama_interactive(prompt, "explorer", self.cfg)
-            elapsed = time.time() - t0
-            print(f"\n  {_elapsed_badge(elapsed, bool(out))}")
-            self.session.turns.append(AgentTurn("explorer", "ollama", out, elapsed, True))
-            return out
+        # Ollama fallback
+        out = run_ollama_interactive(
+            f"Explore this task and find relevant code:\nTask: {self.task}\n\nContext:\n{self.handoff}", "explorer", self.cfg
+        )
+        elapsed = time.time() - t0
+        print(f"\n  {_elapsed_badge(elapsed, bool(out))}")
+        self.session.turns.append(AgentTurn("explorer", "ollama", out, elapsed, True))
+        return out
 
-        return "\n\n".join(combined)
-
-    def _analyse(self, subtasks: str, explorer_out: str) -> str:
-        analysts = agents_for_role("analyst")
-        if not analysts:
-            analysts = list(self.avail.keys())[:1]
-
-        combined: list[str] = []
-        for i, key in enumerate(analysts):
-            _print_handoff("explorer", "analyst", "Explorer findings ready → write fix")
-            prompt = (
-                f"You are an expert software engineer. The explorer found the relevant code.\n"
-                f"Write a concrete fix.\n\n"
-                f"Task: {self.task}\n\nSubtasks:\n{subtasks}\n\n"
-                f"Explorer findings:\n{explorer_out}\n\n"
-                f"Repo context:\n{self.handoff[:2000]}\n\n"
-                f"Output:\n"
-                f"1. Root cause (1-2 sentences per subtask)\n"
-                f"2. Exact code changes (show diff or before/after)\n"
-                f"3. Files to touch\n"
-                f"4. Risks / side effects\n"
-                f"5. Verification commands"
-            )
-            t0 = time.time()
-            result = run_agent_interactive(key, prompt, "analyst", self.repo, self.interactive)
+    def _analyse(self, subtasks: str, explorer_out: str, agent_key: str) -> str:
+        prompt = (
+            f"You are an expert software engineer. The explorer found the relevant code.\n"
+            f"Write a concrete fix.\n\n"
+            f"Task: {self.task}\n\nSubtasks:\n{subtasks}\n\n"
+            f"Explorer findings:\n{explorer_out}\n\n"
+            f"Repo context:\n{self.handoff[:2000]}\n\n"
+            f"Output:\n"
+            f"1. Root cause (1-2 sentences per subtask)\n"
+            f"2. Exact code changes (show diff or before/after)\n"
+            f"3. Files to touch\n"
+            f"4. Risks / side effects\n"
+            f"5. Verification commands"
+        )
+        _print_handoff("explorer", "analyst", f"Explorer findings ready → {agent_key} writes fix")
+        t0 = time.time()
+        if agent_key:
+            result = run_agent_interactive(agent_key, prompt, "analyst", self.repo, self.interactive)
             elapsed = time.time() - t0
             print(f"\n  {_elapsed_badge(elapsed, result['ok'])}")
             if result["output"]:
-                combined.append(f"=== {key} analysis ===\n{result['output']}")
-            self.session.turns.append(AgentTurn("analyst", key, result["output"], elapsed, result["ok"]))
+                self.session.turns.append(AgentTurn("analyst", agent_key, result["output"], elapsed, result["ok"]))
+                return result["output"]
 
-        if not combined:
-            prompt = f"Analyse and fix this task:\n{self.task}\n\nExplorer:\n{explorer_out}\n\nContext:\n{self.handoff[:2000]}"
-            t0 = time.time()
-            out = run_ollama_interactive(prompt, "analyst", self.cfg)
-            elapsed = time.time() - t0
-            print(f"\n  {_elapsed_badge(elapsed, bool(out))}")
-            self.session.turns.append(AgentTurn("analyst", "ollama", out, elapsed, True))
-            return out
+        out = run_ollama_interactive(
+            f"Analyse and fix this task:\n{self.task}\n\nExplorer:\n{explorer_out}\n\nContext:\n{self.handoff[:2000]}", "analyst", self.cfg
+        )
+        elapsed = time.time() - t0
+        print(f"\n  {_elapsed_badge(elapsed, bool(out))}")
+        self.session.turns.append(AgentTurn("analyst", "ollama", out, elapsed, True))
+        return out
 
-        return "\n\n".join(combined)
-
-    def _review(self, analyst_out: str, explorer_out: str) -> str:
-        analyst_agents = {t.agent for t in self.session.turns if t.role == "analyst"}
-        reviewers = agents_for_role("reviewer")
-        independent = [a for a in reviewers if a not in analyst_agents]
-        pool = independent if independent else reviewers
-        if not pool:
-            pool = list(self.avail.keys())
-
-        combined: list[str] = []
-        for key in pool:
-            _print_handoff("analyst", "reviewer", "Fix proposed → independent review")
-            prompt = (
-                f"You are a strict code reviewer. Another agent proposed a fix. Find problems.\n\n"
-                f"Task: {self.task}\n\n"
-                f"Explorer findings:\n{explorer_out[:1500]}\n\n"
-                f"Proposed fix:\n{analyst_out}\n\n"
-                f"Review:\n"
-                f"- Is the root cause correct?\n"
-                f"- Edge cases missed?\n"
-                f"- Will this break existing tests?\n"
-                f"- Security implications?\n"
-                f"- Is the fix minimal?\n\n"
-                f"Output:\n1. VERDICT: APPROVE / REQUEST_CHANGES / NEEDS_DISCUSSION\n"
-                f"2. Issues found\n3. Suggested improvements\n4. Final recommendation"
-            )
-            t0 = time.time()
-            result = run_agent_interactive(key, prompt, "reviewer", self.repo, self.interactive)
+    def _review(self, analyst_out: str, explorer_out: str, agent_key: str) -> str:
+        prompt = (
+            f"You are a strict code reviewer. Another agent proposed a fix. Find problems.\n\n"
+            f"Task: {self.task}\n\n"
+            f"Explorer findings:\n{explorer_out[:1500]}\n\n"
+            f"Proposed fix:\n{analyst_out}\n\n"
+            f"Review:\n"
+            f"- Is the root cause correct?\n"
+            f"- Edge cases missed?\n"
+            f"- Will this break existing tests?\n"
+            f"- Security implications?\n"
+            f"- Is the fix minimal?\n\n"
+            f"Output:\n1. VERDICT: APPROVE / REQUEST_CHANGES / NEEDS_DISCUSSION\n"
+            f"2. Issues found\n3. Suggested improvements\n4. Final recommendation"
+        )
+        _print_handoff("analyst", "reviewer", f"Fix proposed → {agent_key} reviews")
+        t0 = time.time()
+        if agent_key:
+            result = run_agent_interactive(agent_key, prompt, "reviewer", self.repo, self.interactive)
             elapsed = time.time() - t0
             print(f"\n  {_elapsed_badge(elapsed, result['ok'])}")
             if result["output"]:
-                combined.append(f"=== {key} review ===\n{result['output']}")
-            self.session.turns.append(AgentTurn("reviewer", key, result["output"], elapsed, result["ok"]))
+                self.session.turns.append(AgentTurn("reviewer", agent_key, result["output"], elapsed, result["ok"]))
+                return result["output"]
 
-        if not combined:
-            prompt = f"Review this fix:\n{analyst_out}\n\nFor task: {self.task}"
-            t0 = time.time()
-            out = run_ollama_interactive(prompt, "reviewer", self.cfg)
-            elapsed = time.time() - t0
-            print(f"\n  {_elapsed_badge(elapsed, bool(out))}")
-            self.session.turns.append(AgentTurn("reviewer", "ollama", out, elapsed, True))
-            return out
-
-        return "\n\n".join(combined)
-
-    def _extra(self, subtasks: str, analyst_out: str, explorer_out: str) -> None:
-        used = {t.agent for t in self.session.turns}
-        remaining = [k for k in self.avail if k not in used]
-        for key in remaining:
-            _print_handoff("reviewer", "contributor", f"{key} adds independent perspective")
-            prompt = (
-                f"Task: {self.task}\n\n"
-                f"Other agents have explored and proposed a fix. "
-                f"Add your independent perspective.\n\n"
-                f"Explorer:\n{explorer_out[:800]}\n\n"
-                f"Proposed fix:\n{analyst_out[:1200]}\n\n"
-                f"What did others miss? Alternative approach? Additional risks?"
-            )
-            t0 = time.time()
-            result = run_agent_interactive(key, prompt, "contributor", self.repo, self.interactive)
-            elapsed = time.time() - t0
-            print(f"\n  {_elapsed_badge(elapsed, result['ok'])}")
-            if result["output"]:
-                self.session.turns.append(AgentTurn("contributor", key, result["output"], elapsed, result["ok"]))
+        out = run_ollama_interactive(f"Review this fix:\n{analyst_out}\n\nFor task: {self.task}", "reviewer", self.cfg)
+        elapsed = time.time() - t0
+        print(f"\n  {_elapsed_badge(elapsed, bool(out))}")
+        self.session.turns.append(AgentTurn("reviewer", "ollama", out, elapsed, True))
+        return out
 
     def _synthesize(self) -> str:
         _print_handoff("reviewer", "synthesizer", "All agent outputs → merge into final answer")
@@ -903,7 +912,7 @@ class InteractiveCouncil:
 
     def _print_session_header(self) -> None:
         w = min(_term_width(), 88)
-        agent_names = list(self.avail.keys())
+        agent_names = [k for k, v in self.avail.items() if v.get("kind") != "gui"]
         agents_str = "  ".join(
             f"{_agent_color(k)}{C['bold']}{k}{C['reset']}" for k in agent_names
         ) or f"{C['dim']}ollama only{C['reset']}"
