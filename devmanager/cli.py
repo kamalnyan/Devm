@@ -80,14 +80,12 @@ def main(argv: list[str] | None = None) -> int:
     if not task and not sys.stdin.isatty():
         task = sys.stdin.read().strip()
 
-    # ── Map --mode to internal flags ─────────────────────────────────────────
-    # plan  → solve only (Ollama analyzes, no agents run)
-    # ask   → council + edit (ask permission per file change)
-    # auto  → council (default, auto-approve)
-    # turbo → council + yolo (no guards)
+    # ── Mode selection ────────────────────────────────────────────────────────
     mode = args.mode
+    # If no --mode flag and no legacy flags, ask user to pick mode interactively
     if mode is None and not any([args.solve, args.a2a, args.council, args.adk_council, args.agent]):
-        mode = "auto"  # default mode
+        mode = _pick_mode()
+    # Map mode → internal flags (kept for backward compat)
     if mode == "plan":
         args.solve = True
     elif mode == "ask":
@@ -424,6 +422,35 @@ async def _run_adk(args: argparse.Namespace, task: str) -> int:
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+def _pick_mode() -> str:
+    """Show mode picker at prompt time. Returns selected mode."""
+    BOLD = "\033[1m"; DIM = "\033[2m"; CYAN = "\033[36m"; RESET = "\033[0m"
+    GREEN = "\033[32m"; YELLOW = "\033[33m"; RED = "\033[31m"
+
+    if not sys.stdin.isatty():
+        return "auto"  # non-interactive → default
+
+    print()
+    print(f"  {BOLD}Select mode:{RESET}")
+    print(f"  {CYAN}1{RESET}  Plan   {DIM}— analyze only, no changes{RESET}")
+    print(f"  {CYAN}2{RESET}  Ask    {DIM}— agents discuss → ask permission per file change{RESET}")
+    print(f"  {GREEN}{BOLD}3{RESET}  Auto   {DIM}— agents discuss → apply changes  {GREEN}[default]{RESET}")
+    print(f"  {YELLOW}4{RESET}  Turbo  {DIM}— fully autonomous, no prompts{RESET}")
+    print()
+    try:
+        raw = input(f"  Mode [3]: ").strip()
+    except (EOFError, KeyboardInterrupt):
+        print()
+        return "auto"
+
+    mapping = {"1": "plan", "2": "ask", "3": "auto", "4": "turbo",
+               "plan": "plan", "ask": "ask", "auto": "auto", "turbo": "turbo"}
+    mode = mapping.get(raw.lower(), "auto")
+    mode_label = {"plan": "Plan", "ask": "Ask", "auto": "Auto", "turbo": "Turbo"}[mode]
+    print(f"  {DIM}→ {mode_label} mode{RESET}\n")
+    return mode
+
 
 def _run_config(args: list[str]) -> int:
     BOLD = "\033[1m"; CYAN = "\033[36m"; GREEN = "\033[32m"; DIM = "\033[2m"; RESET = "\033[0m"; YELLOW = "\033[33m"
