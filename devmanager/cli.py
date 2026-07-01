@@ -874,7 +874,8 @@ def _run_agent_add_wizard() -> int:
          "cli": ["Contents/Resources/goose", "Contents/MacOS/goose"]},
         {"app": "Amp.app",            "key": "amp",        "name": "Sourcegraph Amp",
          "cli": ["Contents/Resources/amp",   "Contents/MacOS/amp"]},
-        # Antigravity is a GUI-only IDE — no CLI interface, skip it
+        {"app": "Antigravity.app", "key": "antigravity", "name": "Antigravity",
+         "cli": []},   # GUI-only IDE — detected by app presence, not CLI binary
         {"app": "GitHub Desktop.app", "key": "gh",         "name": "GitHub Copilot CLI",
          "cli": []},
     ]
@@ -903,7 +904,13 @@ def _run_agent_add_wizard() -> int:
         key = app_info["key"]
         if key in discovered or key in extra_found:
             continue
-        for rel in app_info["cli"]:
+        cli_list = app_info.get("cli", [])
+        if not cli_list:
+            # GUI-only app — register by app bundle presence
+            extra_found[key] = {"name": app_info["name"], "path": str(app_path),
+                                 "gui": True}
+            continue
+        for rel in cli_list:
             candidate = app_path / rel
             if candidate.exists() and os.access(str(candidate), os.X_OK):
                 extra_found[key] = {"name": app_info["name"], "path": str(candidate)}
@@ -948,14 +955,15 @@ def _run_agent_add_wizard() -> int:
         new_agents = []
 
     else:
-        print(f"  {BOLD}Found {len(new_agents)} more AI CLI(s) on your machine:{RESET}\n")
+        print(f"  {BOLD}Found {len(new_agents)} more AI tool(s) on your machine:{RESET}\n")
         for i, a in enumerate(new_agents, 1):
             try:
                 short = str(_Path(a["path"]).relative_to(_Path.home()))
                 short = "~/" + short
             except ValueError:
                 short = a["path"]
-            print(f"    {CYAN}{i}{RESET}.  {BOLD}{a['name']:<22}{RESET}  {DIM}{short}{RESET}")
+            gui_tag = f"  {DIM}(GUI — paste via clipboard){RESET}" if a.get("gui") else ""
+            print(f"    {CYAN}{i}{RESET}.  {BOLD}{a['name']:<22}{RESET}  {DIM}{short}{RESET}{gui_tag}")
         print()
 
     # Custom binary option always at end

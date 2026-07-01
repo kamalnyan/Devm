@@ -137,6 +137,20 @@ _BUILTIN_REGISTRY: dict[str, dict] = {
         "strengths": ["shell", "git", "ci"],
         "timeout": 60,
     },
+    "antigravity": {
+        "name": "Antigravity",
+        "app_bundle": "Antigravity",               # macOS app name for 'open -a'
+        "kind": "gui",                             # GUI agent — paste via clipboard
+        "search_paths": [
+            "/Applications/Antigravity.app",       # detect by app presence
+        ],
+        "stdin": False,
+        "cmd_template": [],                        # not run as CLI
+        "auth_marker_fail": [],
+        "auth_cmd": [],
+        "strengths": ["frontend", "fullstack", "gemini", "google"],
+        "timeout": 0,
+    },
 }
 
 # Custom agents config path
@@ -207,6 +221,14 @@ def discover_agents(force: bool = False) -> dict[str, dict]:
 
 
 def _resolve_binary(key: str, spec: dict) -> Path | None:
+    # GUI agents — detect by app bundle existence, not a CLI binary
+    if spec.get("kind") == "gui":
+        for sp in spec.get("search_paths", []):
+            p = Path(sp)
+            if p.exists():
+                return p   # return the .app path as the "binary"
+        return None
+
     # Check env var override first
     env_val = os.getenv(spec.get("path_env", ""), "")
     if env_val:
@@ -298,6 +320,10 @@ def check_agent_auth(agent_key: str) -> tuple[bool, str]:
     binary = info["binary"]
     fail_markers = info.get("auth_marker_fail", [])
 
+    # GUI agents — app presence = ready (no CLI to check)
+    if info.get("kind") == "gui":
+        return True, "ready (GUI)"
+
     # No auth markers defined = no login required, just check binary runs
     if not fail_markers:
         try:
@@ -372,8 +398,12 @@ def run_agent(
     info = agents[agent_key]
     binary = info["binary"]
     cwd = str(Path(repo).expanduser().resolve()) if repo else str(Path.cwd())
-    effective_timeout = timeout or info.get("timeout", 300)
 
+    # GUI agents — focus app + copy prompt to clipboard, don't spawn process
+    if info.get("kind") == "gui":
+        return _run_gui_agent(agent_key, info, prompt)
+
+    effective_timeout = timeout or info.get("timeout", 300)
     cmd, stdin_data = _build_command(agent_key, info, prompt, extra_cfg or {})
     env = {**os.environ, "FORCE_COLOR": "0", "NO_COLOR": "1"}
 
@@ -386,6 +416,61 @@ def run_agent(
         return {
             "ok": False, "agent": agent_key, "output": "", "returncode": -1,
             "error": f"Binary not found: {binary}",
+        }
+
+
+def _run_gui_agent(agent_key: str, info: dict, prompt: str) -> dict:
+    """Handle GUI-only agents — focus the app + copy prompt to clipboard."""
+    BOLD = "\033[1m"; CYAN = "\033[36m"; GREEN = "\033[32m"
+    YELLOW = "\033[33m"; DIM = "\033[2m"; RESET = "\033[0m"
+
+    app_name = info.get("app_bundle", info["name"])
+    print(f"\n  {CYAN}◆  {BOLD}{app_name}{RESET}  {DIM}(GUI agent){RESET}")
+
+    # Copy prompt to clipboard
+    try:
+        subprocess.run(["pbcopy"], input=prompt, text=True, check=True, timeout=5)
+    except Exception as e:
+        return {"ok": False, "agent": agent_key, "output": "",
+                "error": f"Clipboard copy failed: {e}"}
+
+    # Focus the app (open -a brings existing window to front, doesn't relaunch)
+    try:
+        subprocess.run(["open", "-a", app_name], check=False, timeout=5,
+                       capture_output=True)
+    except Exception:
+        pass
+
+    # Try to auto-paste via AppleScript
+    paste_script = '''
+tell application "System Events"
+    delay 0.8
+    keystroke "v" using command down
+    delay 0.3
+    key code 36
+end tell
+'''
+    result = subprocess.run(
+        ["osascript", "-e", paste_script],
+        capture_output=True, text=True, timeout=10, check=False,
+    )
+
+    if result.returncode == 0:
+        print(f"  {GREEN}✓  Prompt sent to {app_name} — check the app window{RESET}")
+        return {
+            "ok": True, "agent": agent_key,
+            "output": f"[Sent to {app_name} via clipboard + paste]",
+            "gui": True,
+        }
+    else:
+        # Accessibility not granted — just clipboard
+        print(f"  {YELLOW}◈  Prompt copied to clipboard{RESET}")
+        print(f"  {DIM}Switch to {app_name} and press ⌘V to paste{RESET}")
+        print(f"  {DIM}(To enable auto-paste: System Settings → Privacy → Accessibility → add Terminal){RESET}")
+        return {
+            "ok": True, "agent": agent_key,
+            "output": f"[Prompt in clipboard — paste into {app_name} with ⌘V]",
+            "gui": True, "clipboard_only": True,
         }
 
 
@@ -595,12 +680,14 @@ def print_agents(show_all: bool = False) -> None:
     for key, info, status in ready:
         strengths = ", ".join(info.get("strengths", []))
         binary = info.get("binary", "")
-        # Shorten path for display
+        is_gui = info.get("kind") == "gui"
+        icon = f"{CYAN}◆{RESET}" if is_gui else f"{GREEN}✓{RESET}"
+        tag  = f"  {DIM}(GUI — paste via clipboard){RESET}" if is_gui else ""
         try:
             short = "~/" + str(Path(binary).relative_to(Path.home()))
         except ValueError:
             short = binary
-        print(f"  {GREEN}✓{RESET}  {BOLD}{key:<15}{RESET} {info['name']}")
+        print(f"  {icon}  {BOLD}{key:<15}{RESET} {info['name']}{tag}")
         if strengths:
             print(f"       {DIM}strengths: {strengths}{RESET}")
         print(f"       {DIM}{short}{RESET}")
