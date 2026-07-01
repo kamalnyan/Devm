@@ -1,341 +1,409 @@
 <div align="center">
 
-# DevManager
+<img src="https://raw.githubusercontent.com/kamalnyan/Devm/main/docs/assets/banner.png" alt="DevManager" width="100%" />
 
-**An open-source local AI dev routing tool.**  
-Route tasks to the right AI agent, run multi-agent councils, and watch agents **talk to each other** in real time.
+# ⚡ Devm
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://python.org)
-[![No API Key Required](https://img.shields.io/badge/API%20Key-Not%20Required-green.svg)](#)
+### Your AI agents, finally talking to each other.
 
+> Route dev tasks to the right AI · Run multi-agent councils · Watch agents `@mention` each other in real time
+
+<br/>
+
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=for-the-badge)](LICENSE)
+[![Python 3.11+](https://img.shields.io/badge/Python-3.11+-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://python.org)
+[![Ollama](https://img.shields.io/badge/Ollama-Local%20AI-black?style=for-the-badge)](https://ollama.ai)
+[![No API Key](https://img.shields.io/badge/API%20Key-Not%20Required-22c55e?style=for-the-badge)](#)
+
+<br/>
+
+```bash
+pip install devm   # coming soon · for now: bash install.sh
 ```
-devm --a2a "fix the razorpay webhook signature bug"
-```
 
-```
-╭──────────────────────────────────────────────────────────╮
-│  DevManager A2A Council  —  agents talk to each other    │
-│  Agents:  claude  codex  aider                           │
-│  Mode:    bidirectional · multi-turn · live chat         │
-╰──────────────────────────────────────────────────────────╯
-
-  ··············  Phase 2 · Exploration  ··············
-
-  🔍 codex  is thinking…
-  ⠸  codex  Reading codebase…
-
-      Found webhook handler at src/payments/webhook.ts:47
-
-  ❓  codex  →  @claude
-      Did you check if there's a timeout guard? I don't see one on line 52.
-
-  ⚙️  claude  →  @codex
-      @codex: Can you confirm what crypto module is imported?
-
-  🔍 codex  →  @claude
-      crypto is imported on line 3 but timingSafeEqual is NOT used —
-      they're doing plain string comparison. That's the real bug.
-
-  ⚙️  claude
-      Root cause confirmed. Fix: crypto.timingSafeEqual() + 30s timeout.
-```
+<br/>
 
 </div>
 
 ---
 
-## What is DevManager?
+## 🤔 What is this?
 
-DevManager is a **local AI orchestration CLI** that sits between you and your AI tools:
+You have Claude Code installed. Maybe Codex too. Maybe Aider. They're all sitting on your machine doing nothing until you manually open them one by one.
 
-1. **Routes** your dev task to the right AI agent using local rules + optional Ollama
-2. **Runs multi-agent councils** where multiple AI agents collaborate sequentially
-3. **Enables real A2A communication** — agents `@mention` each other, ask follow-up questions, and reply before giving their final answer
-4. **Works entirely offline** (Ollama for planning/synthesis) or with any installed AI CLI — no new API keys needed
-5. **Shows everything live** in the terminal — streaming output, spinner animations, permission prompts, agent handoffs
+**Devm fixes that.**
 
-> DevManager doesn't replace your AI tools. It **orchestrates the ones you already have installed**.
+It's a single `devm` command that:
 
----
+- 🎯 **Routes** your task to the right agent automatically
+- 🤝 **Runs councils** where multiple agents work together
+- 💬 **Lets agents talk to each other** — Claude asks Codex a question, Codex replies, Claude uses that to write a better fix
+- 📺 **Shows everything live** in your terminal with a Claude Code-style UI
+- 🔐 **Asks permission** before running any command an agent suggests
+- 🔋 **Works offline** — Ollama handles planning and synthesis, no API key needed
 
-## Features
-
-| Feature | Command | Description |
-|---------|---------|-------------|
-| Smart routing | `devm "task"` | Routes to right agent via local rules + Ollama |
-| Direct agent | `devm --agent claude "task"` | Send prompt to Claude Code CLI directly |
-| Auto agent | `devm --agent auto "task"` | Best available agent auto-selected |
-| Council | `devm --council "task"` | Sequential pipeline: Planner→Explorer→Analyst→Reviewer→Synthesizer |
-| **A2A Council** | `devm --a2a "task"` | **Agents talk to each other via `@mentions`** |
-| Background | `devm --bg --a2a "task"` | Run any mode in background |
-| Job management | `devm jobs` / `devm result <id>` | Check background job status and results |
-| Agent discovery | `devm agents` | Show all installed AI CLIs with auth status |
-| Add custom agent | `devm agent-add mybot --binary /path` | Register any AI CLI |
+<br/>
 
 ---
 
-## How A2A Communication Works
-
-Unlike a sequential pipeline, A2A enables **real back-and-forth**:
+## 🎬 See it in action
 
 ```
-Traditional council:          A2A council:
-──────────────────            ──────────────────────────────────
-Planner  → text              Planner  → text
-   ↓                            ↓
-Explorer → text              Explorer → @claude: what's on line 52?
-   ↓                            claude  → found the bug here
-Analyst  → text              Explorer → (now writes report with that info)
-   ↓                            ↓
-Reviewer → text              Analyst  → @codex: verify this fix works?
-   ↓                            codex   → LGTM but check edge case X
-Synthesizer                  Analyst  → ok, adding edge case handler
-                             Reviewer → @analyst: justify this choice
-                             Analyst  → because of constraint Y
-                             Synthesizer → final merged answer
+$ devm --a2a "fix the razorpay webhook signature bug"
 ```
 
-Each agent can `@mention` any other agent mid-response. The orchestrator intercepts these, routes them to the target agent, feeds the reply back, and the original agent continues with that new context. Up to 3 rounds of back-and-forth per pipeline step.
+```
+╭──────────────────────────────────────────────────────────╮
+│  ⚡ Devm A2A Council  —  agents talking to each other    │
+│                                                          │
+│  Task:    fix the razorpay webhook signature bug         │
+│  Agents:  claude  codex  aider                           │
+│  Mode:    bidirectional · multi-turn · live chat         │
+╰──────────────────────────────────────────────────────────╯
+
+  ·················  🧠 Planning  ··················
+
+  🧠 ollama  is thinking…
+  ⠸  ollama  Breaking down the task…
+
+      1. Find the webhook handler and signature logic
+      2. Identify the bug — string compare vs timing-safe
+      3. Write the fix with proper crypto validation
+
+  ✓  8.3s
+
+  ················  🔍 Exploration  ················
+
+  🔍 codex  Scanning repo…
+  ⠼  codex  Reading codebase…
+
+      Found: src/payments/webhook.ts:47
+      Signature check on line 52 — using plain string comparison
+
+  ❓  codex  →  @claude
+      There's no timeout guard either. Did you want me to check
+      if crypto is even imported correctly?
+
+  ⚙️  claude  →  @codex
+      Yes please. @codex: what's the import on line 1-5?
+
+  🔍 codex  →  @claude
+      crypto is imported but timingSafeEqual is NOT used.
+      Line 52: if (sig === expected) — that's the bug.
+      Also no timeout, so replay attacks are possible.
+
+  ⚙️  claude
+      Got it. Root cause: string comparison + no timeout.
+
+      Fix:
+      - Replace with crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(expected))
+      - Add 5 minute timestamp window check
+
+  🔎 reviewer  →  @claude
+      What about the case where X-Razorpay-Signature header is missing?
+      Should return 400, not crash.
+
+  ⚙️  claude  →  @reviewer
+      Good catch. Adding null guard before the comparison.
+
+  ✨ Synthesizing final answer…
+
+  ════════════════════════════════════════════════════════
+  ✓  Council complete  · 6 messages · 4 direct exchanges
+  ════════════════════════════════════════════════════════
+```
+
+<br/>
 
 ---
 
-## Installation
+## ✨ All Commands
 
-### Prerequisites
+| Command | What it does |
+|---------|-------------|
+| `devm "task"` | Smart route — figures out which agent should handle it |
+| `devm --agent claude "task"` | Send directly to Claude Code CLI |
+| `devm --agent codex "task"` | Send directly to Codex CLI |
+| `devm --agent auto "task"` | Auto-pick the best available agent |
+| `devm --council "task"` | Sequential pipeline: each agent builds on the last |
+| `devm --a2a "task"` | **Agents talk to each other via @mentions** |
+| `devm --solve "task"` | Ollama solves it locally, streams to terminal |
+| `devm --bg --a2a "task"` | Run in background, check result later |
+| `devm jobs` | See all background jobs |
+| `devm result <id>` | Get result of a background job |
+| `devm agents` | See all discovered AI CLIs + auth status |
+| `devm agent-add` | Register any AI CLI as an agent |
+| `devm config` | View / update settings |
+| `devm --doctor` | Health check — Ollama, agents, config |
+| `devm history` | Recent tasks and results |
+| `devm consult` | Skill recommendations for your task |
 
-- Python 3.11+
-- [Ollama](https://ollama.ai) running locally — free, no API key needed
-- At least one AI agent CLI installed:
-  - [Claude Code](https://claude.ai/code)
-  - [Codex CLI](https://chatgpt.com) (via ChatGPT app)
-  - [Aider](https://aider.chat) — `pip install aider-chat`
-  - [Gemini CLI](https://github.com/google-gemini/gemini-cli) — `npm install -g @google/gemini-cli`
-  - Any other AI CLI (register with `devm agent-add`)
+<br/>
 
-### Install
+---
+
+## 🚀 Getting Started
+
+### 1. Install Ollama (free local AI)
 
 ```bash
-git clone https://github.com/kamalnyan/Devm.git
-cd devmanager
-bash install.sh
-```
-
-The installer creates a venv, installs DevManager, and adds `devm` globally.
-
-### Pull Ollama model
-
-```bash
+# macOS
+brew install ollama
+ollama serve &
 ollama pull glm4
 ```
 
-Any Ollama model works. GLM4 is recommended.
+Ollama handles planning and synthesis — no API key, runs on your machine.
 
-### Verify
+### 2. Have at least one AI CLI installed
 
-```bash
-devm --doctor     # check all components
-devm agents       # show discovered AI CLIs
-```
+| Agent | Install |
+|-------|---------|
+| [Claude Code](https://claude.ai/code) | Download the app, `claude` CLI included |
+| [Codex CLI](https://chatgpt.com) | Download ChatGPT app, `codex` CLI included |
+| [Aider](https://aider.chat) | `pip install aider-chat` |
+| [Gemini CLI](https://github.com/google-gemini/gemini-cli) | `npm install -g @google/gemini-cli` |
 
----
-
-## Quick Start
-
-```bash
-# Route a task (shows which agent + full handoff prompt)
-devm "fix the payment webhook bug"
-
-# Send directly to Claude Code CLI
-devm --agent claude "fix the payment webhook bug"
-
-# Auto-pick best available agent
-devm --agent auto "fix the payment webhook bug"
-
-# Sequential multi-agent council
-devm --council "fix the payment webhook bug"
-
-# A2A council — agents talk to each other
-devm --a2a "fix the payment webhook bug"
-
-# Run in background
-devm --bg --a2a "fix the payment webhook bug"
-devm jobs
-devm result <job-id>
-```
-
----
-
-## Agent Discovery
-
-DevManager auto-discovers any AI CLI on your machine:
-
-```
-devm agents
-
-  AI Agents on this machine:
-
-  ✓  claude          Claude Code
-       strengths: backend, implementation, debugging, refactor
-
-  ✓  codex           Codex CLI
-       strengths: exploration, review, architecture, cross-stack
-
-  ✓  aider           Aider
-       strengths: implementation, refactor, multi-file
-
-  devm --agent auto "task"           → best agent auto-selected
-  devm --council "task"              → all agents collaborate
-  devm agent-add mybot --binary /path/to/cli  → register new agent
-```
-
-### Register any CLI as an agent
-
-```bash
-devm agent-add myagent \
-  --binary /path/to/myagent-cli \
-  --name "My Custom Agent" \
-  --stdin \
-  --strengths backend review
-```
-
-No code changes needed. It immediately participates in future councils.
-
-Built-in auto-discovery: `claude`, `codex`, `aider`, `gemini`, `opencode`, `goose`, `amp`, `gh-copilot`, and PATH scan for `cursor`, `windsurf`, `continue`, `cody`, `tabnine`, and more.
-
----
-
-## Permission Prompts
-
-When an agent suggests running a command, DevManager asks you first — like Claude Code:
-
-```
-  ╭─ 🔐 Permission Request ─────────────────────────────────╮
-  │  codex wants to: Run command
-  │
-  │    npm run test
-  │
-  ╰──────────────────────────────────────────────────────────╯
-
-  [A]llow  [S]kip  [M]odify  > _
-```
-
-- **Safe** (`git status`, `grep`, `cat`) — green badge
-- **Normal** (`npm install`, `docker run`) — standard prompt
-- **Destructive** (`rm -rf`, `git push --force`, `DROP TABLE`) — red warning
-
----
-
-## Council Modes
-
-| Mode | Command | How agents communicate |
-|------|---------|----------------------|
-| `--agent auto` | `devm --agent auto "task"` | Single agent, best match |
-| `--council` | `devm --council "task"` | Sequential: A→B→C→D |
-| `--a2a` | `devm --a2a "task"` | Bidirectional: agents @mention each other |
-| `--adk-council` | `devm --adk-council "task"` | Ollama orchestrates, decides agent flow |
-
----
-
-## Background Jobs
-
-```bash
-devm --bg --a2a "refactor auth to use JWT refresh tokens"
-# → ✓ Job ID: 20260701-053444-refactor-auth
-
-devm jobs                        # list all jobs
-devm result 20260701-053444      # get result
-devm result 2026070105           # short prefix works too
-```
-
----
-
-## Configuration
-
-```bash
-devm config                     # view current config
-
-# Set LLM provider
-devm config --provider ollama --model glm4:latest
-devm config --provider openai --model gpt-4o
-devm config --provider anthropic --model claude-opus-4-8
-```
-
-Providers: `ollama` (local, free) | `openai` | `anthropic` | `gemini` | `groq` | `together`
-
----
-
-## Project Structure
-
-```
-devmanager/
-├── cli.py           # Main entry point — all commands dispatched here
-├── a2a.py           # A2A communication — agents @mention each other
-├── interactive.py   # Claude Code-style UI — spinner, streaming, permissions
-├── council.py       # Sequential multi-agent pipeline
-├── agent_bridge.py  # Plugin-style agent discovery + execution
-├── handoff.py       # Rich prompt builder — skills, code search, constraints
-├── router.py        # Task routing — local rules + optional LLM
-├── llm.py           # LLM layer (Ollama + LiteLLM for cloud)
-├── solver.py        # Direct LLM call with streaming
-├── jobs.py          # Background job management
-├── _bg_worker.py    # Detached background process worker
-└── doctor.py        # Health check
-```
-
----
-
-## Skills System
-
-DevManager injects skill guidance into agent prompts based on task type:
-
-```
-.agents/skills/
-├── verification-loop/      # Run build/test/lint after every change
-├── payment-integration/    # Razorpay, Stripe, UPI patterns
-├── backend-patterns/       # NestJS, Prisma, Redis
-├── api-design/             # REST, GraphQL contract design
-└── security-review/        # OWASP, auth, injection prevention
-```
-
-Add your own:
-```bash
-mkdir -p .agents/skills/my-skill
-# create SKILL.md with YAML frontmatter (triggers, priority, content)
-```
-
----
-
-## Contributing
-
-This project is early-stage and moving fast. Contributions welcome.
+### 3. Install Devm
 
 ```bash
 git clone https://github.com/kamalnyan/Devm.git
-cd devmanager
+cd Devm
+bash install.sh
+```
+
+That's it. `devm` is now globally available.
+
+### 4. Verify everything works
+
+```bash
+devm --doctor
+devm agents
+```
+
+<br/>
+
+---
+
+## 💬 How A2A Actually Works
+
+This is the interesting part. Most "multi-agent" tools just pass text from one agent to the next in a chain. That's not communication, that's a conveyor belt.
+
+**A2A is different.** Agents can interrupt, ask questions, and get answers before they finish their work:
+
+```
+❌ Old way (conveyor belt):
+   Planner → Explorer → Analyst → Reviewer
+   (each one just reads the previous output, no back-and-forth)
+
+✅ A2A way (real conversation):
+   Explorer:  "I found the bug at line 52"
+   Analyst:   @codex: "Can you confirm the import on line 3?"
+   Codex:     "timingSafeEqual is imported but not used"
+   Analyst:   (now writes a better fix using that info)
+   Reviewer:  @analyst: "What about missing header edge case?"
+   Analyst:   "Good catch, adding null guard"
+   Synthesizer: merges everything into final answer
+```
+
+Each agent can send up to 3 rounds of questions per step. The orchestrator intercepts `@mentions`, routes them, gets replies, and feeds them back. All shown live in your terminal.
+
+<br/>
+
+---
+
+## 🔌 Auto-Discovery — It Finds Your Agents
+
+Devm automatically scans your machine for installed AI CLIs:
+
+```
+$ devm agents
+
+  AI Agents on this machine:
+
+  ✓  claude     Claude Code
+                strengths: backend, implementation, debugging
+
+  ✓  codex      Codex CLI
+                strengths: exploration, review, architecture
+
+  ✓  aider      Aider
+                strengths: implementation, refactor, multi-file
+
+  +2 more discovered but not authenticated. Run 'devm agents --all' to see them.
+
+  devm --agent auto "task"    → best agent auto-selected
+  devm --a2a "task"           → all agents collaborate
+  devm agent-add mybot ...    → register a new agent
+```
+
+**Add any AI CLI in 10 seconds:**
+
+```bash
+devm agent-add mytool \
+  --binary /usr/local/bin/mytool \
+  --name "My AI Tool" \
+  --strengths backend review
+```
+
+No code changes. It joins every future council automatically.
+
+**Built-in discovery for:** `claude` · `codex` · `aider` · `gemini` · `opencode` · `goose` · `amp` · `gh-copilot` · `cursor` · `windsurf` · `continue` · `cody` · `tabnine` and more via PATH scan.
+
+<br/>
+
+---
+
+## 🔐 Permission Prompts
+
+When an agent suggests running a command, Devm asks you first:
+
+```
+  ╭─ 🔐 Permission Request ──────────────────────────────╮
+  │  codex wants to run:                                  │
+  │                                                       │
+  │    npm run test                                       │
+  │                                                       │
+  ╰───────────────────────────────────────────────────────╯
+
+  [A]llow   [S]kip   [M]odify  >  _
+```
+
+**Three levels of risk:**
+
+- 🟢 `git status`, `grep`, `cat` — read-only, auto-allowed
+- 🟡 `npm install`, `docker run` — standard prompt
+- 🔴 `rm -rf`, `git push --force`, `DROP TABLE` — red warning, extra confirmation
+
+You can also modify a command before running it.
+
+<br/>
+
+---
+
+## ⚙️ Configuration
+
+```bash
+devm config                   # see current settings
+
+# Use local Ollama (default, free)
+devm config --provider ollama --model glm4:latest
+
+# Use OpenAI
+devm config --provider openai --model gpt-4o
+
+# Use Anthropic
+devm config --provider anthropic --model claude-opus-4-8
+
+# Use Groq (fast + cheap)
+devm config --provider groq --model llama-3.1-70b-versatile
+```
+
+Config is saved to `~/.devmanager/config.json`.
+
+<br/>
+
+---
+
+## 🗂 Background Jobs
+
+Don't want to wait? Run it in the background:
+
+```bash
+# Start
+devm --bg --a2a "refactor the auth module to use JWT refresh tokens"
+# → ✓ Job ID: 20260701-053444-refactor-auth
+
+# Check status
+devm jobs
+
+# Get result when done
+devm result 20260701-053444
+# Short prefix also works
+devm result 202607
+```
+
+<br/>
+
+---
+
+## 🧠 Skills System
+
+Devm injects domain-specific guidance into agent prompts automatically. Drop a `SKILL.md` in `.agents/skills/` and it gets picked up:
+
+```
+.agents/skills/
+├── verification-loop/      # Always run tests after changes
+├── payment-integration/    # Razorpay, Stripe, UPI patterns
+├── backend-patterns/       # NestJS, Prisma, Redis
+├── api-design/             # REST, GraphQL contracts
+├── security-review/        # OWASP, auth, injection
+└── your-custom-skill/      # Add your own
+```
+
+Skills are matched by keyword. The right ones get injected automatically.
+
+<br/>
+
+---
+
+## 🏗 How It's Built
+
+```
+devmanager/
+├── a2a.py           # A2A engine — @mention routing, message bus
+├── interactive.py   # Terminal UI — spinner, streaming, permissions
+├── council.py       # Sequential pipeline mode
+├── agent_bridge.py  # Agent plugin registry — discover + run any CLI
+├── cli.py           # All commands
+├── handoff.py       # Prompt builder — skills + code search + constraints
+├── router.py        # Task routing — local rules + Ollama
+├── solver.py        # Direct LLM call with streaming
+├── jobs.py          # Background job management
+└── doctor.py        # Health check
+```
+
+<br/>
+
+---
+
+## 🤝 Contributing
+
+This is early and moving fast. All contributions welcome.
+
+```bash
+git clone https://github.com/kamalnyan/Devm.git
+cd Devm
 python -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
 ```
 
-Areas that need work:
-- More agent adapters (Cursor, Windsurf, Continue.dev)
-- Web UI for council sessions
-- Better A2A routing
-- Tests
-- Windows support
+**Good first issues:**
+- Add agent adapter for Cursor / Windsurf / Continue.dev
+- Write tests for the A2A mention parser
+- Add Windows support
+- Build a web UI for council sessions
 
-Open an issue or PR.
+Open an issue, open a PR, or just star the repo if you find it useful.
+
+<br/>
 
 ---
 
-## License
+## 📄 License
 
-MIT — see [LICENSE](LICENSE).
+MIT — see [LICENSE](LICENSE). Use it however you want.
+
+<br/>
 
 ---
 
 <div align="center">
-Built with Ollama · Claude Code · Codex · Python · Google ADK
+
+Built with [Ollama](https://ollama.ai) · [Claude Code](https://claude.ai/code) · [Codex](https://openai.com) · Python
 
 **No API keys required to get started.**
+
+⭐ Star this repo if it saved you time
+
 </div>
