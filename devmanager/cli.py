@@ -117,14 +117,14 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.adk:
         return asyncio.run(_run_adk(args, task))
-    return _run_direct(args, task)
+    return _run_direct(args, task, mode=mode)
 
 
 # ---------------------------------------------------------------------------
 # Direct path: local rules + optional Ollama
 # ---------------------------------------------------------------------------
 
-def _run_direct(args: argparse.Namespace, task: str) -> int:
+def _run_direct(args: argparse.Namespace, task: str, mode: str = "auto") -> int:
     repo_root = Path(args.repo).expanduser().resolve()
     context = collect_context(repo_root)
     local_route = classify_task(task, context)
@@ -224,7 +224,7 @@ def _run_direct(args: argparse.Namespace, task: str) -> int:
     # mode is already set: plan / ask / auto / turbo
     # Legacy flags (--a2a, --council, --edit, --yolo) also land here via mode mapping
     effective_mode = mode or "auto"
-    if args.council or getattr(args, "a2a", False) or args.adk_council:
+    if args.council or getattr(args, "a2a", False) or getattr(args, "adk_council", False):
         # Remap old flags to modes
         if getattr(args, "yolo", False):
             effective_mode = "turbo"

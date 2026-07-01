@@ -475,9 +475,13 @@ def run_agent_interactive(
         print(f"  {C['dim']}⊘ {agent_key} is a GUI agent — skipped in council mode{C['reset']}")
         return {"ok": False, "output": "", "error": "GUI agent skipped in council"}
 
-    binary = info["binary"]
+    binary = info.get("binary", "")
     cwd = str(Path(repo).expanduser().resolve()) if repo else str(Path.cwd())
     cmd, stdin_data = _build_command(agent_key, info, prompt, {})
+    if not cmd:
+        _role_header(role, agent_key)
+        print(f"  {C['dim']}⊘ {agent_key} has no CLI command — skipped{C['reset']}")
+        return {"ok": False, "output": "", "error": "No command"}
     env = {**os.environ, "FORCE_COLOR": "0", "NO_COLOR": "1"}
 
     _role_header(role, agent_key)

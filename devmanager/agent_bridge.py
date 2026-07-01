@@ -481,7 +481,13 @@ def _build_command(
     extra_cfg: dict,
 ) -> tuple[list[str], bytes | None]:
     """Build command list and optional stdin bytes for an agent."""
-    binary = info["binary"]
+    # GUI agents have no CLI — caller should have checked kind=="gui" first
+    if info.get("kind") == "gui":
+        return [], None
+
+    binary = info.get("binary", "")
+    if not binary:
+        return [], None
     template = info.get("cmd_template", [binary, "{prompt}"])
     use_stdin = info.get("stdin", False)
 
