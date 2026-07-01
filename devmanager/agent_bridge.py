@@ -283,36 +283,64 @@ def register_custom_agent(
 # ─────────────────────────────────────────────────────────────────────────────
 
 def check_agent_auth(agent_key: str) -> tuple[bool, str]:
-    """Check if agent is authenticated. Returns (ok, message)."""
+    """Check if agent is ready to use. Returns (ok, status_message).
+
+    Three possible outcomes:
+      True,  "ready"          — binary works, no auth error markers found
+      False, "needs login"    — binary works but auth markers detected in output
+      False, "not working"    — binary crashed, timed out, or returned bad exit
+    """
     agents = discover_agents()
     if agent_key not in agents:
-        return False, f"Agent '{agent_key}' not found."
+        return False, "not found"
 
     info = agents[agent_key]
     binary = info["binary"]
+    fail_markers = info.get("auth_marker_fail", [])
+
+    # No auth markers defined = no login required, just check binary runs
+    if not fail_markers:
+        try:
+            r = subprocess.run(
+                [binary, "--version"],
+                capture_output=True, text=True, timeout=8, check=False,
+            )
+            # Some binaries return non-zero on --version (e.g. Antigravity) — that's fine
+            # Just confirm the binary is executable and doesn't crash immediately
+            return True, "ready"
+        except FileNotFoundError:
+            return False, "binary not found"
+        except subprocess.TimeoutExpired:
+            # Timed out on --version — probably a GUI app that blocks
+            # Assume it's installed and usable if file exists
+            return True, "ready (GUI app)"
+        except Exception:
+            return True, "ready"
+
+    # Has auth markers — run auth_cmd and check output
     auth_cmd_tmpl = info.get("auth_cmd", [binary, "--version"])
     auth_cmd = [c.replace("{binary}", binary) for c in auth_cmd_tmpl]
-    fail_markers = info.get("auth_marker_fail", [])
 
     try:
         result = subprocess.run(
             auth_cmd,
-            capture_output=True, text=True, timeout=15, check=False,
+            capture_output=True, text=True, timeout=10, check=False,
         )
         combined = (result.stdout + result.stderr).lower()
         for marker in fail_markers:
             if marker.lower() in combined:
-                return False, (
-                    f"{info['name']} not authenticated.\n"
-                    f"  Run: {binary} /login  (or open the app and sign in)"
-                )
-        return True, f"{info['name']} ready."
+                return False, "needs login"
+        return True, "ready"
+    except FileNotFoundError:
+        return False, "binary not found"
+    except subprocess.TimeoutExpired:
+        return False, "auth check timed out"
     except Exception as exc:
-        return False, f"Auth check failed: {exc}"
+        return False, f"check failed: {exc}"
 
 
 def available_agents() -> dict[str, dict]:
-    """Return only agents that are discovered AND authenticated."""
+    """Return only agents that are discovered AND ready to use."""
     result = {}
     for key, info in discover_agents().items():
         ok, _ = check_agent_auth(key)
@@ -545,29 +573,65 @@ def print_agents(show_all: bool = False) -> None:
     YELLOW = "\033[33m"; RED = "\033[31m"; CYAN = "\033[36m"; RESET = "\033[0m"
 
     all_agents = discover_agents(force=True)
-    avail = available_agents()
 
     print(f"\n{BOLD}AI Agents on this machine:{RESET}\n")
 
     if not all_agents:
-        print(f"  {DIM}No agents found. Install Claude Code or Codex to start.{RESET}\n")
+        print(f"  {DIM}No agents found. Install Claude Code, Codex, or Aider to start.{RESET}")
+        print(f"  {DIM}Then run 'devm agent-add' to register them.{RESET}\n")
         return
 
+    ready: list[tuple[str, dict, str]]    = []
+    not_ready: list[tuple[str, dict, str]] = []
+
     for key, info in all_agents.items():
-        if key in avail:
-            strengths = ", ".join(info.get("strengths", []))
-            print(f"  {GREEN}✓{RESET}  {BOLD}{key:<15}{RESET} {info['name']}")
+        ok, status = check_agent_auth(key)
+        if ok:
+            ready.append((key, info, status))
+        else:
+            not_ready.append((key, info, status))
+
+    # ── Ready agents ──────────────────────────────────────────────────────────
+    for key, info, status in ready:
+        strengths = ", ".join(info.get("strengths", []))
+        binary = info.get("binary", "")
+        # Shorten path for display
+        try:
+            short = "~/" + str(Path(binary).relative_to(Path.home()))
+        except ValueError:
+            short = binary
+        print(f"  {GREEN}✓{RESET}  {BOLD}{key:<15}{RESET} {info['name']}")
+        if strengths:
             print(f"       {DIM}strengths: {strengths}{RESET}")
-            print(f"       {DIM}{info['binary']}{RESET}")
-        elif show_all:
-            ok, msg = check_agent_auth(key)
-            print(f"  {RED}✗{RESET}  {DIM}{key:<15}{RESET} {DIM}{info['name']} — {msg.splitlines()[0]}{RESET}")
+        print(f"       {DIM}{short}{RESET}")
         print()
 
-    if not show_all and len(all_agents) > len(avail):
-        not_ready = len(all_agents) - len(avail)
-        print(f"  {DIM}+{not_ready} more discovered but not authenticated. Run 'devm agents --all' to see them.{RESET}\n")
+    # ── Not-ready agents ──────────────────────────────────────────────────────
+    if not_ready and show_all:
+        print(f"  {YELLOW}Not ready:{RESET}\n")
+        for key, info, status in not_ready:
+            binary = info.get("binary", "")
+            icon = YELLOW + "⚠" if status == "needs login" else RED + "✗"
+            action = ""
+            if status == "needs login":
+                action = f"  → open {info['name']} and sign in"
+            elif status == "auth check timed out":
+                action = "  → binary may be a GUI-only app"
+            print(f"  {icon}{RESET}  {DIM}{key:<15}{RESET} {info['name']}  {DIM}({status}){RESET}")
+            if action:
+                print(f"       {DIM}{action}{RESET}")
+            print()
 
-    print(f"  {DIM}devm --agent auto \"task\"           → best agent auto-selected{RESET}")
-    print(f"  {DIM}devm --council \"task\"              → all agents collaborate{RESET}")
-    print(f"  {DIM}devm agent-add  → add more agents (interactive){RESET}\n")
+    elif not_ready and not show_all:
+        names = ", ".join(info["name"] for _, info, _ in not_ready)
+        print(f"  {DIM}Not ready: {names}{RESET}")
+        for key, info, status in not_ready:
+            icon = "⚠" if status == "needs login" else "✗"
+            action = f"open {info['name']} and sign in" if status == "needs login" else status
+            print(f"  {DIM}{icon}  {key:<15} {action}{RESET}")
+        print(f"\n  {DIM}Run 'devm agents --all' for details{RESET}")
+        print()
+
+    print(f"  {DIM}devm --agent auto \"task\"    → best agent auto-selected{RESET}")
+    print(f"  {DIM}devm --council \"task\"       → all agents collaborate{RESET}")
+    print(f"  {DIM}devm agent-add              → add more agents{RESET}\n")
