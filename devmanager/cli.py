@@ -222,38 +222,27 @@ def _run_direct(args: argparse.Namespace, task: str) -> int:
     else:
         _print_handoff(handoff)
 
-    # ── Council mode: interactive multi-agent pipeline ────────────────────
-    # ── A2A mode: agents genuinely talk to each other ────────────────────
-    if getattr(args, "a2a", False):
-        from .a2a import A2ACouncil
-        a2a = A2ACouncil(
-            task=task,
-            repo=str(repo_root),
-            handoff_prompt=handoff["prompt"],
-            cfg=llm_cfg,
-            interactive=True,
-        )
-        session = a2a.run()
-        combined_output = session.chat_log()
-        save_run_record(
-            task=task, repo=str(repo_root),
-            evidence={"handoff": handoff, "a2a_chat": combined_output},
-            compact=_compact_handoff(handoff), gui_result=None,
-        )
-        # Edit/Yolo: apply file changes from agent output
-        if getattr(args, "edit", False) or getattr(args, "yolo", False):
-            from .edit_mode import run_edit_mode
-            run_edit_mode(combined_output, str(repo_root), yolo=getattr(args, "yolo", False))
-        return 0
+    # ── All 4 modes go through InteractiveCouncil (3-phase pipeline) ────────
+    # mode is already set: plan / ask / auto / turbo
+    # Legacy flags (--a2a, --council, --edit, --yolo) also land here via mode mapping
+    effective_mode = mode or "auto"
+    if args.council or getattr(args, "a2a", False) or args.adk_council:
+        # Remap old flags to modes
+        if getattr(args, "yolo", False):
+            effective_mode = "turbo"
+        elif getattr(args, "edit", False):
+            effective_mode = "ask"
+        else:
+            effective_mode = "auto"
 
-    if args.council:
+    if effective_mode in ("plan", "ask", "auto", "turbo"):
         from .interactive import InteractiveCouncil
         council = InteractiveCouncil(
             task=task,
             repo=str(repo_root),
             handoff_prompt=handoff["prompt"],
             cfg=llm_cfg,
-            interactive=True,
+            mode=effective_mode,
         )
         session = council.run()
         transcript = "\n".join(
@@ -265,23 +254,6 @@ def _run_direct(args: argparse.Namespace, task: str) -> int:
             evidence={"handoff": handoff, "council_transcript": transcript},
             compact=_compact_handoff(handoff), gui_result=None,
         )
-        # Edit/Yolo: apply file changes from agent output
-        if getattr(args, "edit", False) or getattr(args, "yolo", False):
-            from .edit_mode import run_edit_mode
-            run_edit_mode(transcript, str(repo_root), yolo=getattr(args, "yolo", False))
-        return 0
-
-    # ── ADK Council mode: GLM4 orchestrates agents via ADK ────────────────
-    if args.adk_council:
-        try:
-            import asyncio
-            asyncio.run(run_adk_council(task, str(repo_root), handoff["prompt"], cfg=llm_cfg))
-        except RuntimeError as exc:
-            print(f"\n[adk-council] {exc}", file=sys.stderr)
-            print("Falling back to --council mode…")
-            from .interactive import InteractiveCouncil
-            InteractiveCouncil(task=task, repo=str(repo_root),
-                               handoff_prompt=handoff["prompt"], cfg=llm_cfg).run()
         return 0
 
     # ── Agent mode: single agent with interactive streaming ──────────────

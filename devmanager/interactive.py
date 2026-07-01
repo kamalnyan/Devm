@@ -676,7 +676,12 @@ class InteractiveSession:
 
 
 class InteractiveCouncil:
-    """Multi-agent council with Claude Code-style live terminal UI."""
+    """3-phase multi-agent council.
+
+    Phase 1 — DISCUSSION : agents talk among themselves (no user interrupts).
+    Phase 2 — MANAGER    : Ollama reads discussion → decides what to change.
+    Phase 3 — EXECUTE    : based on mode (plan/ask/auto/turbo).
+    """
 
     def __init__(
         self,
@@ -684,13 +689,13 @@ class InteractiveCouncil:
         repo: str,
         handoff_prompt: str,
         cfg: dict[str, Any] | None = None,
-        interactive: bool = True,
+        mode: str = "auto",   # plan | ask | auto | turbo
     ) -> None:
         self.task = task
         self.repo = repo
         self.handoff = handoff_prompt
         self.cfg = cfg or load_cfg()
-        self.interactive = interactive and sys.stdin.isatty()
+        self.mode = mode
         self.avail = available_agents()
         self.session = InteractiveSession(task=task, repo=repo)
 
@@ -700,25 +705,93 @@ class InteractiveCouncil:
         t0 = time.time()
         self._print_session_header()
 
-        # 1. Plan — Ollama decides subtasks AND assigns one agent per role
+        # ── PHASE 1: DISCUSSION (agents talk, no user interrupts) ──────────
+        _sep("·", C["cyan"])
+        print(f"  {C['cyan']}{C['bold']}Phase 1 — Agent Discussion{C['reset']}  {C['dim']}(agents working, no prompts){C['reset']}")
+        _sep("·", C["cyan"])
+
         subtasks, assignments = self._plan()
-
-        # 2. Explore — assigned agent only
         explorer_out = self._explore(subtasks, assignments.get("explorer", ""))
-
-        # 3. Analyse — different assigned agent
-        analyst_out = self._analyse(subtasks, explorer_out, assignments.get("analyst", ""))
-
-        # 4. Review — third assigned agent
+        analyst_out  = self._analyse(subtasks, explorer_out, assignments.get("analyst", ""))
         reviewer_out = self._review(analyst_out, explorer_out, assignments.get("reviewer", ""))
 
-        # 6. Synthesize
-        final = self._synthesize()
+        # ── PHASE 2: MANAGER DECISION (Ollama synthesizes discussion) ──────
+        print()
+        _sep("·", C["yellow"])
+        print(f"  {C['yellow']}{C['bold']}Phase 2 — Manager Decision{C['reset']}  {C['dim']}(Ollama reads discussion → decides){C['reset']}")
+        _sep("·", C["yellow"])
+        decision = self._manager_decision(explorer_out, analyst_out, reviewer_out)
 
-        self.session.final = final
+        # ── PHASE 3: EXECUTE (based on mode) ───────────────────────────────
+        print()
+        _sep("·", C["green"])
+        mode_labels = {
+            "plan":  "Plan Mode  — showing plan, no changes applied",
+            "ask":   "Ask Mode   — applying changes with permission per file",
+            "auto":  "Auto Mode  — applying changes automatically",
+            "turbo": "Turbo Mode — applying everything, running verification",
+        }
+        print(f"  {C['green']}{C['bold']}Phase 3 — Execute{C['reset']}  {C['dim']}{mode_labels.get(self.mode, self.mode)}{C['reset']}")
+        _sep("·", C["green"])
+        self._execute(decision, analyst_out)
+
+        self.session.final = decision
         self.session.total_elapsed = time.time() - t0
         self._print_session_footer()
         return self.session
+
+    # ── Phase 2: Manager Decision ─────────────────────────────────────────
+
+    def _manager_decision(self, explorer_out: str, analyst_out: str, reviewer_out: str) -> str:
+        transcript = "\n\n".join(filter(None, [
+            f"EXPLORER:\n{explorer_out}" if explorer_out else "",
+            f"ANALYST:\n{analyst_out}" if analyst_out else "",
+            f"REVIEWER:\n{reviewer_out}" if reviewer_out else "",
+        ]))
+        prompt = (
+            f"You are the Manager AI. Multiple agents discussed this task.\n"
+            f"Read their discussion and produce a clear final decision.\n\n"
+            f"Task: {self.task}\n\n"
+            f"Agent Discussion:\n{transcript[:4000]}\n\n"
+            f"Output (be concise and actionable):\n"
+            f"1. VERDICT: what is the root cause / answer\n"
+            f"2. CHANGES: list exact file changes needed (file path + what to change)\n"
+            f"3. COMMANDS: any commands to run after changes\n"
+            f"4. RISKS: anything to watch out for\n\n"
+            f"If no code changes needed, say so clearly."
+        )
+        t0 = time.time()
+        output = run_ollama_interactive(prompt, "manager", self.cfg)
+        elapsed = time.time() - t0
+        print(f"\n  {_elapsed_badge(elapsed, bool(output))}")
+        if output:
+            self.session.turns.append(AgentTurn("manager", "ollama", output, elapsed, True))
+        return output or ""
+
+    # ── Phase 3: Execute ──────────────────────────────────────────────────
+
+    def _execute(self, decision: str, full_output: str) -> None:
+        combined = f"{full_output}\n\n{decision}"
+
+        if self.mode == "plan":
+            # Just show the plan — no file changes
+            print()
+            print(f"  {C['bold']}Plan (no changes applied):{C['reset']}")
+            for line in decision.splitlines():
+                print(f"  {line}")
+            print(f"\n  {C['dim']}Run with --mode auto or --mode ask to apply.{C['reset']}")
+            return
+
+        if self.mode in ("ask", "auto", "turbo"):
+            from .edit_mode import run_edit_mode
+            yolo = self.mode == "turbo"
+            # ask mode: interactive per-file prompts
+            # auto/turbo: non-interactive (auto-apply)
+            interactive_edit = self.mode == "ask" and sys.stdin.isatty()
+            run_edit_mode(combined, self.repo, yolo=yolo if not interactive_edit else False)
+            if not interactive_edit and self.mode == "auto":
+                # auto: apply silently, just report what changed
+                pass
 
     # ── Steps ─────────────────────────────────────────────────────────────
 
@@ -805,7 +878,7 @@ class InteractiveCouncil:
         _print_handoff("planner", "explorer", f"Subtasks ready → {agent_key} explores repo")
         t0 = time.time()
         if agent_key:
-            result = run_agent_interactive(agent_key, prompt, "explorer", self.repo, self.interactive)
+            result = run_agent_interactive(agent_key, prompt, "explorer", self.repo, False)
             elapsed = time.time() - t0
             print(f"\n  {_elapsed_badge(elapsed, result['ok'])}")
             if result["output"]:
@@ -838,7 +911,7 @@ class InteractiveCouncil:
         _print_handoff("explorer", "analyst", f"Explorer findings ready → {agent_key} writes fix")
         t0 = time.time()
         if agent_key:
-            result = run_agent_interactive(agent_key, prompt, "analyst", self.repo, self.interactive)
+            result = run_agent_interactive(agent_key, prompt, "analyst", self.repo, False)
             elapsed = time.time() - t0
             print(f"\n  {_elapsed_badge(elapsed, result['ok'])}")
             if result["output"]:
@@ -871,7 +944,7 @@ class InteractiveCouncil:
         _print_handoff("analyst", "reviewer", f"Fix proposed → {agent_key} reviews")
         t0 = time.time()
         if agent_key:
-            result = run_agent_interactive(agent_key, prompt, "reviewer", self.repo, self.interactive)
+            result = run_agent_interactive(agent_key, prompt, "reviewer", self.repo, False)
             elapsed = time.time() - t0
             print(f"\n  {_elapsed_badge(elapsed, result['ok'])}")
             if result["output"]:
@@ -925,10 +998,15 @@ class InteractiveCouncil:
         print(f"{C['bold']}│{C['reset']}  {C['bold']}Task:{C['reset']}   {task_display}")
         print(f"{C['bold']}│{C['reset']}  {C['bold']}Agents:{C['reset']}  {agents_str}")
         print(f"{C['bold']}│{C['reset']}  {C['bold']}Repo:{C['reset']}   {C['dim']}{self.repo}{C['reset']}")
+        mode_desc = {
+            "plan":  "plan   — analyze only, no changes",
+            "ask":   "ask    — agents discuss → ask permission per file",
+            "auto":  "auto   — agents discuss → apply changes",
+            "turbo": "turbo  — agents discuss → apply + verify (no prompts)",
+        }.get(self.mode, self.mode)
         print(f"{C['bold']}│{C['reset']}")
-        print(f"{C['bold']}│{C['reset']}  {C['dim']}Pipeline:  Planner → Explorer → Analyst → Reviewer → Synthesizer{C['reset']}")
-        if self.interactive:
-            print(f"{C['bold']}│{C['reset']}  {C['dim']}Mode:      interactive · press Ctrl+C to abort{C['reset']}")
+        print(f"{C['bold']}│{C['reset']}  {C['dim']}Pipeline:  Discussion → Manager Decision → Execute{C['reset']}")
+        print(f"{C['bold']}│{C['reset']}  {C['dim']}Mode:      {mode_desc}  ·  Ctrl+C to abort{C['reset']}")
         print(f"{C['bold']}╰{'─' * (w - 2)}╯{C['reset']}")
 
     def _print_session_footer(self) -> None:
