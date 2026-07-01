@@ -830,6 +830,7 @@ def _print_profiles(as_json: bool = False) -> None:
 def _run_agent_add_wizard() -> int:
     """Fully interactive wizard — discover installed AI CLIs, pick one, register it."""
     import shutil as _shutil
+    from pathlib import Path as _Path
 
     RESET   = "\033[0m"
     BOLD    = "\033[1m"
@@ -839,89 +840,129 @@ def _run_agent_add_wizard() -> int:
     YELLOW  = "\033[33m"
     RED     = "\033[31m"
 
-    # ── All well-known AI CLIs + their install hints ──────────────────────────
-    KNOWN: list[dict] = [
-        {"key": "claude",    "name": "Claude Code",      "binary": "claude",    "hint": "claude.ai/code"},
-        {"key": "codex",     "name": "Codex CLI",        "binary": "codex",     "hint": "openai.com"},
-        {"key": "aider",     "name": "Aider",            "binary": "aider",     "hint": "pip install aider-chat"},
-        {"key": "gemini",    "name": "Gemini CLI",       "binary": "gemini",    "hint": "npm i -g @google/gemini-cli"},
-        {"key": "opencode",  "name": "OpenCode",         "binary": "opencode",  "hint": "github.com/sst/opencode"},
-        {"key": "goose",     "name": "Goose",            "binary": "goose",     "hint": "block.github.io/goose"},
-        {"key": "amp",       "name": "Amp",              "binary": "amp",       "hint": "ampcode.com"},
-        {"key": "cursor",    "name": "Cursor",           "binary": "cursor",    "hint": "cursor.com"},
-        {"key": "windsurf",  "name": "Windsurf",         "binary": "windsurf",  "hint": "codeium.com/windsurf"},
-        {"key": "continue",  "name": "Continue",         "binary": "continue",  "hint": "continue.dev"},
-        {"key": "cody",      "name": "Cody (Sourcegraph)","binary": "cody",     "hint": "sourcegraph.com/cody"},
-        {"key": "tabnine",   "name": "Tabnine",          "binary": "tabnine",   "hint": "tabnine.com"},
-        {"key": "phind",     "name": "Phind",            "binary": "phind",     "hint": "phind.com"},
-        {"key": "supermaven","name": "Supermaven",       "binary": "supermaven","hint": "supermaven.com"},
+    from .agent_bridge import (
+        discover_agents, register_custom_agent,
+        _load_custom_agents, _BUILTIN_REGISTRY,
+    )
+
+    print(f"\n{BOLD}{CYAN}⚡ Devm — Add an AI Agent{RESET}")
+    print(f"  {DIM}Scanning your machine…{RESET}\n")
+
+    # ── Step 1: what's already discovered (all search paths checked) ──────────
+    discovered = discover_agents(force=True)   # uses builtin registry + PATH + custom
+
+    # ── Step 2: scan /Applications for AI apps not yet in registry ───────────
+    # Map: app bundle name → (key, display_name, cli_candidates)
+    _APP_MAP: list[dict] = [
+        {"app": "Claude.app",         "key": "claude",     "name": "Claude Code",
+         "cli": ["Contents/Resources/claude", "Contents/MacOS/claude"]},
+        {"app": "Claude Code.app",    "key": "claude",     "name": "Claude Code",
+         "cli": ["Contents/Resources/claude", "Contents/MacOS/claude"]},
+        {"app": "Codex.app",          "key": "codex",      "name": "Codex CLI",
+         "cli": ["Contents/Resources/codex",  "Contents/MacOS/codex"]},
+        {"app": "Cursor.app",         "key": "cursor",     "name": "Cursor",
+         "cli": ["Contents/Resources/app/bin/cursor", "Contents/MacOS/Cursor"]},
+        {"app": "Windsurf.app",       "key": "windsurf",   "name": "Windsurf",
+         "cli": ["Contents/Resources/app/bin/windsurf", "Contents/MacOS/Windsurf"]},
+        {"app": "Zed.app",            "key": "zed",        "name": "Zed",
+         "cli": ["Contents/MacOS/cli"]},
+        {"app": "Warp.app",           "key": "warp",       "name": "Warp",
+         "cli": ["Contents/MacOS/warp-cli"]},
+        {"app": "Cody.app",           "key": "cody",       "name": "Cody (Sourcegraph)",
+         "cli": ["Contents/Resources/cody", "Contents/MacOS/cody"]},
+        {"app": "Goose.app",          "key": "goose",      "name": "Goose",
+         "cli": ["Contents/Resources/goose", "Contents/MacOS/goose"]},
+        {"app": "Amp.app",            "key": "amp",        "name": "Sourcegraph Amp",
+         "cli": ["Contents/Resources/amp",   "Contents/MacOS/amp"]},
+        {"app": "Antigravity.app",    "key": "antigravity","name": "Antigravity",
+         "cli": ["Contents/MacOS/antigravity", "Contents/Resources/antigravity"]},
+        {"app": "GitHub Desktop.app", "key": "gh",         "name": "GitHub Copilot CLI",
+         "cli": []},
     ]
 
-    # Already registered
-    from .agent_bridge import discover_agents, register_custom_agent, _load_custom_agents
-    already_registered = set(discover_agents().keys())
-    custom_registered  = set(_load_custom_agents().keys())
+    # PATH-based extras (not in /Applications)
+    _PATH_EXTRAS = [
+        ("aider",      "Aider",           "pip install aider-chat"),
+        ("gemini",     "Gemini CLI",      "npm i -g @google/gemini-cli"),
+        ("opencode",   "OpenCode",        "github.com/sst/opencode"),
+        ("gh",         "GitHub CLI",      "brew install gh"),
+        ("ollama",     "Ollama",          "ollama.ai"),
+        ("continue",   "Continue",        "continue.dev"),
+        ("tabnine",    "Tabnine",         "tabnine.com"),
+        ("phind",      "Phind",           "phind.com"),
+        ("supermaven", "Supermaven",      "supermaven.com"),
+        ("amp",        "Amp",             "ampcode.com"),
+    ]
 
-    # Scan which ones are installed
-    installed:   list[dict] = []
-    not_installed: list[dict] = []
+    extra_found: dict[str, dict] = {}  # key → {name, path}
 
-    for agent in KNOWN:
-        found_path = _shutil.which(agent["binary"])
+    # Scan /Applications
+    for app_info in _APP_MAP:
+        app_path = _Path("/Applications") / app_info["app"]
+        if not app_path.exists():
+            continue
+        key = app_info["key"]
+        if key in discovered or key in extra_found:
+            continue
+        for rel in app_info["cli"]:
+            candidate = app_path / rel
+            if candidate.exists() and os.access(str(candidate), os.X_OK):
+                extra_found[key] = {"name": app_info["name"], "path": str(candidate)}
+                break
 
-        # Also check Claude's special path
-        if not found_path and agent["key"] == "claude":
-            from .agent_bridge import _find_claude_versioned
-            p = _find_claude_versioned()
-            if p:
-                found_path = str(p)
+    # Scan PATH for extras
+    for bin_name, display, _hint in _PATH_EXTRAS:
+        if bin_name in discovered or bin_name in extra_found:
+            continue
+        p = _shutil.which(bin_name)
+        if p:
+            extra_found[bin_name] = {"name": display, "path": p}
 
-        if found_path:
-            agent = {**agent, "path": found_path,
-                     "registered": agent["key"] in already_registered}
-            installed.append(agent)
-        else:
-            not_installed.append(agent)
-
-    # ── Header ────────────────────────────────────────────────────────────────
-    print(f"\n{BOLD}{CYAN}⚡ Devm — Add an AI Agent{RESET}")
-    print(f"  {DIM}Scanned your machine for installed AI CLIs{RESET}\n")
-
-    # ── Show installed agents ─────────────────────────────────────────────────
-    if not installed:
-        print(f"  {YELLOW}No AI CLIs found on your machine.{RESET}")
-        print(f"\n  Install one first:")
-        for a in KNOWN[:5]:
-            print(f"    {DIM}· {a['name']:20s}  {a['hint']}{RESET}")
-        print()
-        return 0
-
-    # Separate: already in devm vs new ones
-    new_agents  = [a for a in installed if not a["registered"]]
-    done_agents = [a for a in installed if a["registered"]]
-
-    if done_agents:
+    # ── Display: already in Devm ──────────────────────────────────────────────
+    if discovered:
         print(f"  {GREEN}Already in Devm:{RESET}")
-        for a in done_agents:
-            print(f"    {GREEN}✓{RESET}  {BOLD}{a['name']}{RESET}  {DIM}({a['path']}){RESET}")
+        for key, info in discovered.items():
+            strengths = ", ".join(info.get("strengths", []))
+            binary_path = info.get("binary", "")
+            # Shorten long paths
+            try:
+                short = str(_Path(binary_path).relative_to(_Path.home()))
+                short = "~/" + short
+            except ValueError:
+                short = binary_path
+            print(f"    {GREEN}✓{RESET}  {BOLD}{info.get('name', key):<22}{RESET}  "
+                  f"{DIM}{short}{RESET}")
         print()
+
+    # ── Display: found but not in Devm ───────────────────────────────────────
+    new_agents = [
+        {"key": k, "name": v["name"], "path": v["path"]}
+        for k, v in extra_found.items()
+    ]
 
     if not new_agents:
-        print(f"  {GREEN}All installed AI CLIs are already registered.{RESET}")
-        print(f"  Run {CYAN}devm agents{RESET} to see them.\n")
-        return 0
+        print(f"  {GREEN}All found AI CLIs are already in Devm.{RESET}")
+        print(f"\n  {DIM}Don't see an agent? Try:{RESET}")
+        print(f"  {DIM}  · Install it, then run 'devm agent-add' again{RESET}")
+        print(f"  {DIM}  · Pick option below to add any custom binary{RESET}\n")
+        # Still offer custom add
+        new_agents = []
 
-    print(f"  {BOLD}Found {len(new_agents)} new AI CLI(s) on your machine:{RESET}\n")
+    else:
+        print(f"  {BOLD}Found {len(new_agents)} more AI CLI(s) on your machine:{RESET}\n")
+        for i, a in enumerate(new_agents, 1):
+            try:
+                short = str(_Path(a["path"]).relative_to(_Path.home()))
+                short = "~/" + short
+            except ValueError:
+                short = a["path"]
+            print(f"    {CYAN}{i}{RESET}.  {BOLD}{a['name']:<22}{RESET}  {DIM}{short}{RESET}")
+        print()
 
-    # Number the list
-    for i, a in enumerate(new_agents, 1):
-        print(f"    {CYAN}{i}{RESET}.  {BOLD}{a['name']:<20}{RESET}  {DIM}{a['path']}{RESET}")
-
-    # Option to add custom binary
+    # Custom binary option always at end
     custom_num = len(new_agents) + 1
-    print(f"    {CYAN}{custom_num}{RESET}.  {DIM}Custom binary (enter path manually){RESET}")
-    print(f"\n    {DIM}Enter number(s) to add, e.g.  1  or  1 2 3  or  all{RESET}")
-    print(f"    {DIM}Press Enter to skip{RESET}\n")
+    print(f"    {CYAN}{custom_num}{RESET}.  {DIM}Add custom binary (enter path manually){RESET}")
+    print(f"\n    {DIM}Enter number(s), e.g.  1  or  1 2  or  all   (Enter to cancel){RESET}\n")
 
     # ── Input ─────────────────────────────────────────────────────────────────
     try:
@@ -933,12 +974,12 @@ def _run_agent_add_wizard() -> int:
         return 0
 
     if not answer:
-        print(f"  {DIM}Nothing added. Run 'devm agents' to see what's registered.{RESET}\n")
+        print(f"  {DIM}Nothing added.{RESET}\n")
         return 0
 
     # Parse selection
     to_add: list[dict] = []
-    if answer in ("all", "a"):
+    if answer in ("all", "a") and new_agents:
         to_add = new_agents[:]
     else:
         for part in answer.split():
@@ -957,7 +998,7 @@ def _run_agent_add_wizard() -> int:
 
     print()
 
-    # ── Register selected agents ──────────────────────────────────────────────
+    # ── Register ──────────────────────────────────────────────────────────────
     added = 0
     for agent in to_add:
         if agent["key"] == "__custom__":
@@ -965,19 +1006,19 @@ def _run_agent_add_wizard() -> int:
             added += 1
             continue
 
+        # Inherit stdin/cmd_template from builtin registry if known
+        builtin = _BUILTIN_REGISTRY.get(agent["key"], {})
         register_custom_agent(
             key=agent["key"],
             binary=agent["path"],
             name=agent["name"],
-            stdin=True,
-            strengths=["general"],
+            stdin=builtin.get("stdin", True),
+            strengths=builtin.get("strengths", ["general"]),
         )
         print(f"  {GREEN}✓  Added:{RESET} {BOLD}{agent['name']}{RESET}  {DIM}({agent['path']}){RESET}")
         added += 1
 
-    # ── Done ─────────────────────────────────────────────────────────────────
-    print(f"\n  {GREEN}{BOLD}{added} agent(s) added to Devm.{RESET}")
-    print(f"  Run {CYAN}devm agents{RESET} to verify.\n")
+    print(f"\n  {GREEN}{BOLD}{added} agent(s) added.{RESET}  Run {CYAN}devm agents{RESET} to verify.\n")
     return 0
 
 
