@@ -41,8 +41,8 @@ dev = [
 devm = "devmanager.cli:main"
 
 [project.urls]
-Homepage = "https://github.com/jai-shreeram/devmanager"
-Issues = "https://github.com/jai-shreeram/devmanager/issues"
+Homepage = "https://github.com/kamalnyan/devmanager"
+Issues = "https://github.com/kamalnyan/devmanager/issues"
 
 [tool.setuptools.packages.find]
 where = ["."]

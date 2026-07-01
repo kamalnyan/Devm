@@ -116,7 +116,7 @@ Each agent can `@mention` any other agent mid-response. The orchestrator interce
 ### Install
 
 ```bash
-git clone https://github.com/jai-shreeram/devmanager.git
+git clone https://github.com/kamalnyan/devmanager.git
 cd devmanager
 bash install.sh
 ```
@@ -311,7 +311,7 @@ mkdir -p .agents/skills/my-skill
 This project is early-stage and moving fast. Contributions welcome.
 
 ```bash
-git clone https://github.com/jai-shreeram/devmanager.git
+git clone https://github.com/kamalnyan/devmanager.git
 cd devmanager
 python -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
