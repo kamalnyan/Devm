@@ -80,6 +80,25 @@ def main(argv: list[str] | None = None) -> int:
     if not task and not sys.stdin.isatty():
         task = sys.stdin.read().strip()
 
+    # ── Map --mode to internal flags ─────────────────────────────────────────
+    # plan  → solve only (Ollama analyzes, no agents run)
+    # ask   → council + edit (ask permission per file change)
+    # auto  → council (default, auto-approve)
+    # turbo → council + yolo (no guards)
+    mode = args.mode
+    if mode is None and not any([args.solve, args.a2a, args.council, args.adk_council, args.agent]):
+        mode = "auto"  # default mode
+    if mode == "plan":
+        args.solve = True
+    elif mode == "ask":
+        args.council = True
+        args.edit = True
+    elif mode == "auto":
+        args.council = True
+    elif mode == "turbo":
+        args.council = True
+        args.yolo = True
+
     # No task given (or --repl flag) → enter interactive REPL
     if not task or getattr(args, "repl", False):
         from .repl import run_repl
@@ -542,85 +561,57 @@ def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="devm",
         description=(
-            "DevManager — route dev tasks to the right AI agent.\n"
-            "Powered by Google ADK + local Ollama GLM. No paid API keys.\n\n"
-            "Subcommands:\n"
-            "  devm config               → show current provider/model config\n"
-            "  devm config set provider=openai model=gpt-4o-mini\n"
-            "  devm config set provider=ollama model=llama3.2\n"
-            "  devm config set api_key=sk-...\n"
-            "  devm consult \"task\"       → skill/agent recommender\n"
-            "  devm repair               → recreate missing config files\n"
-            "  devm update               → git pull + pip reinstall\n"
-            "  devm history [N]          → show last N runs (default 10)\n"
-            "  devm jobs                 → list background jobs\n"
-            "  devm jobs clear           → delete completed/failed jobs\n"
-            "  devm result <job-id>      → show background job result\n\n"
-            "Autonomous (no GUI needed):\n"
-            "  devm --solve \"task\"              → call LLM directly, stream answer\n"
-            "  devm --agent auto \"task\"         → use best installed CLI agent\n"
-            "  devm --agent claude \"task\"       → force Claude Code CLI\n"
-            "  devm --agent codex  \"task\"       → force Codex CLI\n\n"
-            "Multi-agent Council (agents talk to each other):\n"
-            "  devm --council \"task\"            → Planner→Explorer→Analyst→Reviewer→Synth\n"
-            "  devm --adk-council \"task\"        → ADK orchestrated (GLM4 decides flow)\n"
-            "  devm --bg --council \"task\"       → council in background\n\n"
-            "Routing:\n"
-            "  devm --repo /path \"payment bug fix karo\"          (uses saved config)\n"
-            "  devm --provider openai --model gpt-4o \"debug\"     (override once)\n"
-            "  devm --provider ollama --model llama3.2 \"task\"    (local open-source)\n"
-            "  devm --provider anthropic --model claude-3-5-haiku-20241022 \"task\"\n"
-            "  devm --provider groq --model llama-3.1-8b-instant \"task\"  (free)\n"
-            "  devm --adk --auto-gui \"debug docker redis issue\"\n\n"
-            "Info:\n"
-            "  devm --doctor\n"
-            "  devm --list-agents / --list-roles / --list-profiles"
+            "Devm — your AI agents, finally talking to each other.\n\n"
+            "  devm \"task\"                       → auto mode (multi-agent council)\n"
+            "  devm --mode plan \"task\"            → plan only, no changes\n"
+            "  devm --mode ask  \"task\"            → council + ask before each file change\n"
+            "  devm --mode auto \"task\"            → council, auto-approve changes  [default]\n"
+            "  devm --mode turbo \"task\"           → fully autonomous, no prompts\n\n"
+            "  devm --agent claude \"task\"         → send to Claude Code directly\n"
+            "  devm --agent codex  \"task\"         → send to Codex directly\n"
+            "  devm --bg \"task\"                   → run in background\n\n"
+            "  devm agents                        → see installed AI agents\n"
+            "  devm agent-add                     → add a new agent (interactive)\n"
+            "  devm config                        → view/change provider & model\n"
+            "  devm --doctor                      → health check\n"
+            "  devm history                       → recent runs\n"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    parser.add_argument("task", nargs="*", help="Task or problem to route.")
-    parser.add_argument("--repo", default=str(Path.cwd()), help="Project root to inspect. Default: current directory.")
-    # LLM provider flags (override saved config for this run)
+    parser.add_argument("task", nargs="*", help="Task or problem to solve.")
+    parser.add_argument("--repo", default=str(Path.cwd()), help="Project root. Default: current directory.")
+    # ── Mode (the main thing users set) ──────────────────────────────────────
+    parser.add_argument(
+        "--mode", default=None,
+        choices=["plan", "ask", "auto", "turbo"],
+        help="plan=analyze only · ask=council+permission per change · auto=council+auto-apply · turbo=no restrictions",
+    )
+    # ── Provider / model ────────────────────────────────────────────────────
     parser.add_argument("--provider", default=None,
-                        help="LLM provider: ollama | openai | anthropic | gemini | groq | together | openai-compatible")
+                        help="ollama | openai | anthropic | gemini | groq | together")
     parser.add_argument("--model", default=os.getenv("DEV_MANAGER_MODEL", "glm4:latest"),
-                        help="Model name (default from saved config or glm4:latest for ollama).")
-    parser.add_argument("--api-key", default=os.getenv("DEV_MANAGER_API_KEY"),
-                        help="API key for paid providers (or set via env: OPENAI_API_KEY, ANTHROPIC_API_KEY, etc.)")
+                        help="Model name (saved config or glm4:latest for ollama).")
+    parser.add_argument("--api-key", default=os.getenv("DEV_MANAGER_API_KEY"), help="API key for paid providers.")
     parser.add_argument("--ollama-url", default=os.getenv("OLLAMA_URL", "http://127.0.0.1:11434"), help="Ollama server URL.")
-    parser.add_argument("--profile", default=os.getenv("DEV_MANAGER_PROFILE"), help="Profile from config/profiles.json.")
-    parser.add_argument("--role", help="Role preset (planner/explorer/reviewer/security/fixer/release).")
-    # Mode flags
-    parser.add_argument("--adk", action="store_true", help="Use Google ADK runner for enhanced GLM analysis.")
-    parser.add_argument("--no-llm", action="store_true", help="Skip Ollama; use local rules only.")
-    parser.add_argument("--require-llm", action="store_true",
-                        default=os.getenv("DEV_MANAGER_REQUIRE_LLM") == "1",
-                        help="Fail instead of falling back when Ollama is unavailable.")
-    parser.add_argument("--run-safe", action="store_true", help="Run allowlisted safe verification commands.")
-    # Autonomous solve flags
-    parser.add_argument("--repl", action="store_true",
-                        help="Enter interactive session — run multiple tasks without restarting. "
-                             "Also triggered when no task is given.")
-    parser.add_argument("--solve", action="store_true",
-                        help="Call LLM directly with full handoff prompt — no GUI needed. Streams answer to terminal.")
-    parser.add_argument("--bg", action="store_true",
-                        help="Run solve in background. Returns job ID immediately. Use 'devm result <id>' to check.")
-    parser.add_argument("--a2a", action="store_true",
-                        help="A2A council: agents genuinely talk to each other via @mentions. Real bidirectional communication.")
-    parser.add_argument("--edit", action="store_true",
-                        help="Edit mode: extract file changes from agent output and apply them with permission prompts. "
-                             "Runs tests after. Blocks secrets/production files.")
-    parser.add_argument("--yolo", action="store_true",
-                        help="YOLO mode: fully unrestricted. Auto-approve all file edits and commands. No guards, no prompts. "
-                             "⚠️  Use only in throwaway branches.")
-    parser.add_argument("--council", action="store_true",
-                        help="Run multi-agent council: Planner→Explorer→Analyst→Reviewer→Synthesizer (sequential pipeline).")
-    parser.add_argument("--adk-council", action="store_true",
-                        help="ADK-orchestrated council: GLM4 decides which agents to call and when (requires google-adk).")
+    # ── Agent / run options ──────────────────────────────────────────────────
     parser.add_argument("--agent", default=None, metavar="NAME",
-                        help="Send prompt to installed CLI agent directly: claude | codex | auto. "
-                             "No GUI opened. Runs the agent CLI in your repo. "
-                             "'auto' picks the best agent for the routing owner.")
+                        help="Send directly to one agent: claude | codex | auto")
+    parser.add_argument("--bg", action="store_true", help="Run in background. Use 'devm result <id>' to check.")
+    parser.add_argument("--repl", action="store_true", help="Enter interactive REPL. Also triggered with no task.")
+    # ── Less common flags (kept for backward compat) ─────────────────────────
+    parser.add_argument("--profile", default=os.getenv("DEV_MANAGER_PROFILE"), help=argparse.SUPPRESS)
+    parser.add_argument("--role", help=argparse.SUPPRESS)
+    parser.add_argument("--adk", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--no-llm", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--require-llm", action="store_true",
+                        default=os.getenv("DEV_MANAGER_REQUIRE_LLM") == "1", help=argparse.SUPPRESS)
+    parser.add_argument("--run-safe", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--solve", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--a2a", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--edit", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--yolo", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--council", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--adk-council", action="store_true", help=argparse.SUPPRESS)
     # GUI flags
     parser.add_argument("--gui", help="Paste handoff into a named GUI app (e.g. Claude, Codex, Antigravity).")
     parser.add_argument("--auto-gui", action="store_true", help="Auto-detect target GUI app from routing result.")

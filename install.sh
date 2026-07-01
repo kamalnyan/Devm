@@ -253,13 +253,11 @@ log "Installing devmanager (core)..."
 "$PIP" install -q -e "$REPO_DIR"
 ok "devmanager installed"
 
-if [[ "$INSTALL_ADK" == "true" ]]; then
-  log "Installing Google ADK + LiteLLM (for --adk mode)..."
-  "$PIP" install -q -e "$REPO_DIR[adk]" || {
-    warn "ADK install had issues (optional). Run: pip install google-adk litellm"
-  }
-  ok "google-adk + litellm installed"
-fi
+log "Installing Google ADK + LiteLLM..."
+"$PIP" install -q "google-adk>=0.5.0" "litellm>=1.40.0" || {
+  warn "ADK install had issues. Run manually: pip install google-adk litellm"
+}
+ok "google-adk + litellm installed"
 
 # =============================================================================
 # STEP 5 — devm command (global)
@@ -342,25 +340,29 @@ fi
 # =============================================================================
 echo ""
 echo -e "${GREEN}${BOLD}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}"
-echo -e "${GREEN}${BOLD}  DevManager installed successfully! 🚀${RESET}"
+echo -e "${GREEN}${BOLD}  Devm installed! ⚡${RESET}"
 echo -e "${GREEN}${BOLD}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}"
 echo ""
-echo -e "  ${BOLD}Quick start:${RESET}"
-echo -e "    ${CYAN}devm --repo /path/to/project \"payment bug debug karo\"${RESET}"
-echo -e "    ${CYAN}devm --auto-gui --repo /path/to/project \"redis issue\"${RESET}"
-echo -e "    ${CYAN}devm consult \"docker compose health check\"${RESET}"
-echo -e "    ${CYAN}devm --doctor${RESET}"
+echo -e "  ${BOLD}Modes:${RESET}"
+echo -e "    ${CYAN}devm \"task\"${RESET}                  auto mode  (council, no prompts)"
+echo -e "    ${CYAN}devm --mode plan \"task\"${RESET}      plan only  (analyze, no changes)"
+echo -e "    ${CYAN}devm --mode ask  \"task\"${RESET}      ask mode   (ask before each file change)"
+echo -e "    ${CYAN}devm --mode turbo \"task\"${RESET}     turbo mode (fully autonomous)"
 echo ""
-echo -e "  ${BOLD}Provider:${RESET}         $PROVIDER"
-echo -e "  ${BOLD}Model:${RESET}            $MODEL"
-echo -e "  ${BOLD}Profile:${RESET}          $PROFILE"
-echo -e "  ${BOLD}ADK mode:${RESET}         $([ "$INSTALL_ADK" == "true" ] && echo "enabled (use --adk flag)" || echo "disabled")"
+echo -e "  ${BOLD}Agents:${RESET}"
+echo -e "    ${CYAN}devm agents${RESET}                  see what's installed"
+echo -e "    ${CYAN}devm agent-add${RESET}               add a new agent"
+echo -e "    ${CYAN}devm --doctor${RESET}                health check"
+echo ""
+echo -e "  ${BOLD}Provider:${RESET}  $PROVIDER  |  ${BOLD}Model:${RESET}  $MODEL"
 echo ""
 if [[ "$PROVIDER" != "ollama" ]]; then
-  echo -e "  ${YELLOW}API provider — set key if not done:${RESET}  devm config set api_key=YOUR_KEY"
+  echo -e "  ${YELLOW}Set your API key:${RESET}  devm config set api_key=YOUR_KEY"
 fi
-echo -e "  ${BOLD}Switch provider anytime:${RESET}"
-echo -e "    ${CYAN}devm config set provider=ollama model=llama3.2${RESET}           # local, free"
-echo -e "    ${CYAN}devm config set provider=groq model=llama-3.1-8b-instant${RESET} # cloud, free"
-echo -e "    ${CYAN}devm config set provider=openai model=gpt-4o-mini${RESET}        # paid"
+echo -e "  ${BOLD}Switch provider:${RESET}  devm config set provider=groq model=llama-3.1-8b-instant"
+echo ""
+
+# Auto-discover installed agents
+log "Discovering installed agents..."
+"$PYTHON_VENV" -m devmanager agents 2>/dev/null || true
 echo ""
