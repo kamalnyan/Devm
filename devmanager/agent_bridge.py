@@ -5,8 +5,8 @@ Any AI CLI tool can be registered here. Discovery is automatic:
   - Custom agents can be added via ~/.devmanager/agents.json
   - Any unknown binary that responds to --version is usable
 
-Adding a new agent (no code change needed):
-  devm agent-add myagent --binary /path/to/cli --stdin --name "My Agent"
+Adding a new agent:
+  devm agent-add   (interactive — scans machine, pick from list)
 
 Built-in known agents (auto-discovered if installed):
   claude    → Claude Code CLI
@@ -570,4 +570,4 @@ def print_agents(show_all: bool = False) -> None:
 
     print(f"  {DIM}devm --agent auto \"task\"           → best agent auto-selected{RESET}")
     print(f"  {DIM}devm --council \"task\"              → all agents collaborate{RESET}")
-    print(f"  {DIM}devm agent-add mybot --binary /path/to/cli  → register new agent{RESET}\n")
+    print(f"  {DIM}devm agent-add  → add more agents (interactive){RESET}\n")

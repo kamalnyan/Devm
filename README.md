@@ -236,16 +236,14 @@ $ devm agents
 
   devm --agent auto "task"    → best agent auto-selected
   devm --a2a "task"           → all agents collaborate
-  devm agent-add mybot ...    → register a new agent
+  devm agent-add              → add more agents (interactive)
 ```
 
 **Add any AI CLI in 10 seconds:**
 
 ```bash
-devm agent-add mytool \
-  --binary /usr/local/bin/mytool \
-  --name "My AI Tool" \
-  --strengths backend review
+devm agent-add
+# Scans your machine → shows list → pick by number → done
 ```
 
 No code changes. It joins every future council automatically.
