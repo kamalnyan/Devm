@@ -1031,7 +1031,7 @@ class InteractiveCouncil:
             pass
 
         # Ask user if they want to save the transcript
-        if self.interactive:
+        if self.mode in ("ask",) and sys.stdin.isatty():
             try:
                 ans = input(f"\n  {C['dim']}Save transcript? [y/N]{C['reset']} > ").strip().lower()
                 if ans in ("y", "yes"):
