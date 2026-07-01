@@ -131,9 +131,29 @@ def _run_direct(args: argparse.Namespace, task: str) -> int:
     context = collect_context(repo_root)
     local_route = classify_task(task, context)
 
-    # Build effective LLM config: user config < env vars < CLI flags
+    # Build effective LLM config: user config < ECC suggestion < env vars < CLI flags
     user_cfg = load_user_config()
     llm_cfg = {**user_cfg}
+
+    # ECC auto-config: if project uses ECC and user hasn't set a custom model,
+    # use ECC's preferred model (e.g. claude-opus-4-6)
+    ecc_info = context.get("ecc")
+    if ecc_info:
+        from .ecc import suggested_model as ecc_suggested_model
+        ecc_model = ecc_suggested_model(ecc_info)
+        user_set_model = llm_cfg.get("model", "glm4:latest") not in ("glm4:latest", "glm4")
+        if ecc_model and not user_set_model and not args.provider:
+            # ECC uses Claude — auto-switch to anthropic provider
+            provider_for_ecc = "anthropic" if "claude" in ecc_model else llm_cfg.get("provider", "ollama")
+            if llm_cfg.get("provider", "ollama") == "ollama":
+                # Only auto-switch if user has an anthropic key set
+                import os as _os
+                if _os.getenv("ANTHROPIC_API_KEY") or llm_cfg.get("api_key"):
+                    llm_cfg["provider"] = provider_for_ecc
+                    llm_cfg["model"] = ecc_model
+                    C = {"cyan": "\033[36m", "dim": "\033[2m", "reset": "\033[0m", "bold": "\033[1m"}
+                    print(f"  {C['dim']}ECC project detected → using {ecc_model}{C['reset']}")
+
     if args.provider:
         llm_cfg["provider"] = args.provider
     if args.model != "glm4:latest":  # user explicitly set --model
@@ -434,11 +454,55 @@ async def _run_adk(args: argparse.Namespace, task: str) -> int:
 # ---------------------------------------------------------------------------
 
 def _run_config(args: list[str]) -> int:
+    BOLD = "\033[1m"; CYAN = "\033[36m"; GREEN = "\033[32m"; DIM = "\033[2m"; RESET = "\033[0m"; YELLOW = "\033[33m"
+
     if not args or args[0] == "show":
         print_config()
         return 0
+
+    if args[0] == "setup":
+        # Interactive first-time setup wizard
+        print(f"\n{BOLD}Devm — Provider Setup{RESET}")
+        print(f"{DIM}Choose how Devm's planning/routing brain will work.{RESET}\n")
+        print(f"  {CYAN}1{RESET}) Ollama      — local, free, private (recommended for offline use)")
+        print(f"  {CYAN}2{RESET}) Anthropic   — Claude Opus/Sonnet/Haiku (best quality, paid)")
+        print(f"  {CYAN}3{RESET}) OpenAI      — GPT-4o / GPT-4o-mini (paid)")
+        print(f"  {CYAN}4{RESET}) Groq        — Llama3 (fast, free tier)")
+        print(f"  {CYAN}5{RESET}) Gemini      — Google Gemini (free tier available)")
+        print(f"  {CYAN}6{RESET}) Keep current")
+        print()
+        choice = input("  Choice [1-6]: ").strip()
+        provider_map = {
+            "1": ("ollama", "glm4:latest", None),
+            "2": ("anthropic", "claude-sonnet-4-6", "ANTHROPIC_API_KEY"),
+            "3": ("openai", "gpt-4o-mini", "OPENAI_API_KEY"),
+            "4": ("groq", "llama-3.1-8b-instant", "GROQ_API_KEY"),
+            "5": ("gemini", "gemini-1.5-flash", "GOOGLE_API_KEY"),
+        }
+        if choice not in provider_map:
+            print_config()
+            return 0
+        provider, default_model, env_key = provider_map[choice]
+        print(f"\n  Provider: {CYAN}{BOLD}{provider}{RESET}")
+        model_input = input(f"  Model [{default_model}]: ").strip()
+        model = model_input or default_model
+        updates: dict = {"provider": provider, "model": model}
+        if env_key:
+            import os as _os
+            existing = _os.getenv(env_key, "")
+            if existing:
+                print(f"  {GREEN}✓ {env_key} found in environment{RESET}")
+            else:
+                key_input = input(f"  {env_key} (or press Enter to set later): ").strip()
+                if key_input:
+                    updates["api_key"] = key_input
+        save_user_config(updates)
+        print(f"\n  {GREEN}✓ Saved.{RESET}")
+        print_config()
+        return 0
+
     if args[0] == "set":
-        updates: dict = {}
+        updates = {}
         for pair in args[1:]:
             if "=" not in pair:
                 print(f"Invalid: '{pair}' — use KEY=VALUE format.")
@@ -446,24 +510,28 @@ def _run_config(args: list[str]) -> int:
             key, _, value = pair.partition("=")
             updates[key.strip()] = value.strip()
         if not updates:
-            print("Nothing to set. Example: devm config set provider=openai model=gpt-4o-mini")
+            print("Nothing to set. Examples:")
+            print("  devm config set provider=anthropic model=claude-opus-4-8 api_key=sk-ant-...")
+            print("  devm config set provider=ollama model=llama3.2")
+            print("  devm config set provider=groq model=llama-3.1-8b-instant api_key=gsk_...")
             return 2
-        # Validate provider
         if "provider" in updates and updates["provider"] not in PROVIDERS:
             print(f"Unknown provider: {updates['provider']}")
             print(f"Available: {', '.join(PROVIDERS)}")
             return 1
         save_user_config(updates)
-        print(f"Saved: {updates}")
+        print(f"  {GREEN}✓ Saved{RESET}")
         print_config()
         return 0
+
     if args[0] == "reset":
         save_user_config({"provider": "ollama", "model": "glm4:latest", "api_key": None,
                           "base_url": "http://127.0.0.1:11434"})
         print("Config reset to default (ollama/glm4).")
         return 0
+
     print(f"Unknown config subcommand: {args[0]}")
-    print("Usage: devm config | devm config set KEY=VALUE | devm config reset")
+    print("Usage: devm config | devm config setup | devm config set KEY=VALUE | devm config reset")
     return 1
 
 

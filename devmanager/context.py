@@ -6,7 +6,7 @@ import os
 from pathlib import Path
 
 
-GUIDANCE_NAMES = ("AGENTS.md", "HARNESS.md", "ACCESS-MODEL.md")
+GUIDANCE_NAMES = ("AGENTS.md", "HARNESS.md", "ACCESS-MODEL.md", "RULES.md", "SOUL.md")
 MAX_TEXT_CHARS = 5000
 
 _PROJECT_MARKERS = {
@@ -17,6 +17,8 @@ _IGNORE_DIRS = {"node_modules", ".next", "dist", ".git", "__pycache__", ".venv",
 
 
 def collect_context(repo_root: Path) -> dict:
+    from .ecc import detect_ecc  # avoid circular import
+
     guidance: dict = {}
     missing: list[str] = []
     warnings: list[str] = []
@@ -31,13 +33,17 @@ def collect_context(repo_root: Path) -> dict:
     projects = _detect_projects(repo_root, warnings)
     root_files = _interesting_files(repo_root, max_depth=2)
 
+    # ECC framework detection
+    ecc_info = detect_ecc(repo_root)
+
     return {
         "repo_root": str(repo_root),
         "guidance": guidance,
-        "missing_guidance": missing,
+        "missing_guidance": [m for m in missing if m not in ("RULES.md", "SOUL.md")],
         "warnings": warnings,
         "projects": projects,
         "root_files": root_files,
+        "ecc": ecc_info,  # None if not an ECC project
     }
 
 

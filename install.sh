@@ -366,3 +366,10 @@ echo ""
 log "Discovering installed agents..."
 "$PYTHON_VENV" -m devmanager agents 2>/dev/null || true
 echo ""
+
+# First-time interactive config setup
+if [[ "$PROVIDER" == "ollama" ]]; then
+  echo -e "${YELLOW}  Tip: To use Claude/GPT-4/Groq as the planning brain:${RESET}"
+  echo -e "    ${CYAN}devm config setup${RESET}   (interactive — pick provider + model)"
+  echo ""
+fi

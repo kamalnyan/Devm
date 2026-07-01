@@ -17,6 +17,8 @@ MAX_SNIPPET_LINES = 3  # lines of context to show per file hit
 
 def build_handoff(task: str, route: dict, context: dict, used_llm: bool, profile: str | None = None, role: str | None = None) -> dict:
     config = load_agent_config()
+    from .ecc import build_ecc_context_block, suggested_model
+
     owner = route["owner"]
     agent = agent_for_owner(owner, config)
     target_app = route.get("target_app") or agent.get("app") or agent["name"]
@@ -24,7 +26,13 @@ def build_handoff(task: str, route: dict, context: dict, used_llm: bool, profile
     selected_profile = profile_by_name(profile)
     selected_role = role_preset(role, config)
     skills = matched_skills(task, selected_profile["id"], config)
-    prompt = _prompt_for_owner(task, owner, context, safe_commands, agent, config, selected_profile, selected_role, skills)
+
+    # ECC: inject matched skill content when project uses ECC framework
+    ecc_info = context.get("ecc")
+    ecc_block = build_ecc_context_block(task, ecc_info) if ecc_info else ""
+    ecc_model = suggested_model(ecc_info) if ecc_info else None
+
+    prompt = _prompt_for_owner(task, owner, context, safe_commands, agent, config, selected_profile, selected_role, skills, ecc_block)
 
     return {
         "owner": owner,
@@ -40,10 +48,12 @@ def build_handoff(task: str, route: dict, context: dict, used_llm: bool, profile
         "warnings": context.get("warnings", []),
         "safe_commands": safe_commands,
         "prompt": prompt,
+        "ecc": bool(ecc_info),
+        "ecc_model_suggested": ecc_model,
     }
 
 
-def _prompt_for_owner(task, owner, context, safe_commands, agent, config, profile, role, skills) -> str:
+def _prompt_for_owner(task, owner, context, safe_commands, agent, config, profile, role, skills, ecc_block: str = "") -> str:
     repo_root = context["repo_root"]
     projects = context.get("projects", {})
 
@@ -66,6 +76,8 @@ def _prompt_for_owner(task, owner, context, safe_commands, agent, config, profil
     # FIX 5: Code search — include relevant file hits in prompt
     search_block = _search_block(repo_root, task)
 
+    ecc_section = f"\nECC Framework skills (project uses ECC):\n{ecc_block}\n" if ecc_block else ""
+
     return f"""{owner_focus}
 {role_block}
 
@@ -86,7 +98,7 @@ Profile constraints:
 
 Skill guidance:
 {skill_block}
-
+{ecc_section}
 Repo guidance (AGENTS.md / HARNESS.md / ACCESS-MODEL.md):
 {guidance_block}
 
