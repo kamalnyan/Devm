@@ -3,7 +3,7 @@ from __future__ import annotations
 from google.adk.agents import Agent
 from google.adk.models.lite_llm import LiteLlm
 
-from devmanager.tools import inspect_repo, route_task, run_safe_command, search_code, send_to_gui_app
+from devmanager.adk_tools import inspect_repo, route_task, run_safe_command, search_code, send_to_gui_app
 
 
 INSTRUCTION = """
