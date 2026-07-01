@@ -65,7 +65,7 @@ _BUILTIN_REGISTRY: dict[str, dict] = {
         ],
         "path_env": "CODEX_CLI",
         "stdin": True,
-        "cmd_template": ["{binary}", "exec", "-c", 'sandbox_permissions=["disk-full-read-access"]', "-"],
+        "cmd_template": ["{binary}", "exec", "--skip-git-repo-check", "-c", 'sandbox_permissions=["disk-full-read-access"]', "-"],
         "auth_marker_fail": ["not authenticated", "login required"],
         "auth_cmd": ["{binary}", "doctor"],
         "strengths": ["exploration", "review", "architecture", "cross-stack"],
