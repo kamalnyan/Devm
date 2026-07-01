@@ -126,6 +126,10 @@ def main(argv: list[str] | None = None) -> int:
 
 def _run_direct(args: argparse.Namespace, task: str, mode: str = "auto") -> int:
     repo_root = Path(args.repo).expanduser().resolve()
+    if not repo_root.exists():
+        print(f"\n  ✗  Repo path not found: {repo_root}")
+        print(f"     Use --repo /actual/path/to/project  or cd into your project first.\n")
+        return 1
     context = collect_context(repo_root)
     local_route = classify_task(task, context)
 
