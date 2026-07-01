@@ -1,0 +1,35 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Virtual environments
+.venv/
+.venv-adk/
+venv/
+
+# Dev Manager runtime data (user-specific, not committed)
+runs/
+~/.devmanager/
+~/.dev-manager/
+
+# A2A / council session logs
+.devmanager_a2a.md
+.devmanager_council.md
+
+# Secrets and local config
+.env
+.env.local
+*.secret
+
+# macOS
+.DS_Store
+
+# IDE
+.idea/
+.vscode/
+*.swp

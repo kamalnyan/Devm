@@ -1,0 +1,35 @@
+{
+  "_comment": "Edit 'allowed' to match your project structure. Commands NOT in this list are blocked.",
+  "allowed": [
+    "npm run build",
+    "npm run test",
+    "npm run lint",
+    "npm run typecheck",
+    "cd backend && npm run build",
+    "cd backend && npm run test",
+    "cd frontend && npm run lint",
+    "cd frontend && npm run build",
+    "docker compose up -d --build",
+    "docker compose down",
+    "docker compose ps",
+    "docker compose logs --tail=50",
+    "curl -fsS http://localhost:3000/health",
+    "curl -fsS http://localhost:4000/health/ready",
+    "flutter analyze",
+    "flutter test",
+    "cargo test",
+    "go test ./...",
+    "pytest -x -q"
+  ],
+  "blocked_by_default": [
+    "deploy",
+    "push",
+    "prisma migrate dev",
+    "prisma migrate deploy",
+    "docker compose down -v",
+    "rm -rf",
+    "production",
+    "secret",
+    "password"
+  ]
+}

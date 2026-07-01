@@ -1,0 +1,104 @@
+{
+  "default": "developer",
+  "profiles": {
+    "minimal": {
+      "id": "minimal",
+      "description": "Minimal context, no LLM needed, rules-only. Instant response.",
+      "daily_skills": [],
+      "roles": [
+        "fixer"
+      ],
+      "constraints": [
+        "Use local rules only. Skip Ollama."
+      ]
+    },
+    "core": {
+      "id": "core",
+      "description": "Core profile with verification loop. Good baseline.",
+      "daily_skills": [
+        "verification-loop"
+      ],
+      "roles": [
+        "fixer",
+        "explorer"
+      ],
+      "constraints": [
+        "Read before edit.",
+        "Run verification after change."
+      ]
+    },
+    "developer": {
+      "id": "developer",
+      "description": "Default for app/backend/frontend engineering work.",
+      "daily_skills": [
+        "verification-loop"
+      ],
+      "roles": [
+        "explorer",
+        "fixer",
+        "reviewer"
+      ],
+      "constraints": [
+        "Use evidence from the current repo before routing.",
+        "Prefer root-cause fixes and local verification."
+      ]
+    },
+    "security": {
+      "id": "security",
+      "description": "Security-focused: OWASP checklist active on every task.",
+      "daily_skills": [
+        "verification-loop",
+        "security-review"
+      ],
+      "roles": [
+        "security",
+        "reviewer"
+      ],
+      "constraints": [
+        "Apply OWASP Top 10 checklist to every change.",
+        "Flag issues as CRITICAL / HIGH / MEDIUM / LOW.",
+        "Never approve hardcoded secrets or missing auth guards."
+      ]
+    },
+    "research": {
+      "id": "research",
+      "description": "Explore-first: read and map codebase before any change.",
+      "daily_skills": [
+        "continuous-learning"
+      ],
+      "roles": [
+        "explorer",
+        "planner"
+      ],
+      "constraints": [
+        "Explore and map the codebase before suggesting any change.",
+        "Produce a written analysis before writing code."
+      ]
+    },
+    "full": {
+      "id": "full",
+      "description": "Full — all skills active, strictest constraints. For critical tasks.",
+      "daily_skills": [
+        "verification-loop",
+        "security-review",
+        "tdd-workflow",
+        "continuous-learning"
+      ],
+      "roles": [
+        "planner",
+        "explorer",
+        "fixer",
+        "reviewer",
+        "security",
+        "release"
+      ],
+      "constraints": [
+        "Apply all skill guidance on every task.",
+        "TDD required for any new function.",
+        "Security checklist on any auth/payment/input change.",
+        "Verify build + tests before marking complete.",
+        "Continuous learning: extract and document patterns after each task."
+      ]
+    }
+  }
+}

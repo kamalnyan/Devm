@@ -1,0 +1,340 @@
+{
+  "default_owner": "codex",
+  "agents": [
+    {
+      "id": "frontend",
+      "name": "Antigravity",
+      "app": "Antigravity",
+      "description": "Frontend, UI, UX, web/mobile screens, component styling, responsive behavior.",
+      "keywords": [
+        "frontend",
+        "ui",
+        "ux",
+        "page",
+        "screen",
+        "component",
+        "css",
+        "tailwind",
+        "responsive",
+        "mobile",
+        "next",
+        "react",
+        "flutter",
+        "dart",
+        "rider app",
+        "pilot app"
+      ],
+      "prompt_role": "You are Antigravity. Focus on frontend UI/UX, web/mobile screens, components, styling, responsive behavior, and user-facing flows."
+    },
+    {
+      "id": "backend",
+      "name": "Claude",
+      "app": "Claude",
+      "description": "Backend API, services, databases, queues, Docker, tests, runtime bugs.",
+      "keywords": [
+        "backend",
+        "api",
+        "nestjs",
+        "prisma",
+        "database",
+        "redis",
+        "docker",
+        "compose",
+        "auth",
+        "endpoint",
+        "health",
+        "migration",
+        "server",
+        "webhook",
+        "order",
+        "capture"
+      ],
+      "prompt_role": "You are Claude. Focus on backend API, services, databases, queues, Docker, tests, and runtime bugs."
+    },
+    {
+      "id": "codex",
+      "name": "Codex",
+      "app": "Codex",
+      "description": "Repo inspection, architecture, debugging, logs, reviews, CI, release safety, cross-stack reasoning.",
+      "keywords": [
+        "architecture",
+        "debug",
+        "review",
+        "ci",
+        "release",
+        "logs",
+        "test plan",
+        "audit",
+        "explain",
+        "scale",
+        "performance",
+        "security",
+        "investigate",
+        "razorpay",
+        "payment",
+        "upi",
+        "qr",
+        "dono app",
+        "both app",
+        "rider",
+        "pilot"
+      ],
+      "prompt_role": "You are Codex. Focus on repo inspection, architecture, debugging, logs, reviews, CI, release safety, and cross-stack reasoning."
+    }
+  ],
+  "rules": [
+    {
+      "when_all": [
+        "payment|razorpay|upi|qr|collect|capture|webhook|vpa|pg"
+      ],
+      "owner": "backend",
+      "boost": 4,
+      "confidence": "high",
+      "reason": "Payment task — backend owns Razorpay/UPI/QR integration."
+    },
+    {
+      "when_all": [
+        "docker|redis|postgres|prisma|nestjs|migration|queue|bull"
+      ],
+      "owner": "backend",
+      "boost": 3,
+      "confidence": "high",
+      "reason": "Infrastructure/ORM keyword detected."
+    },
+    {
+      "when_all": [
+        "api|service|controller|endpoint|rest|graphql"
+      ],
+      "owner": "backend",
+      "boost": 2,
+      "confidence": "medium",
+      "reason": "API layer keyword detected."
+    },
+    {
+      "when_all": [
+        "component|screen|widget|tailwind|css|next|react|flutter|ui|layout"
+      ],
+      "owner": "frontend",
+      "boost": 3,
+      "confidence": "high",
+      "reason": "UI/component keyword detected."
+    },
+    {
+      "when_all": [
+        "hook|useState|useEffect|riverpod|provider|state management"
+      ],
+      "owner": "frontend",
+      "boost": 2,
+      "confidence": "medium",
+      "reason": "Frontend state management keyword."
+    },
+    {
+      "when_all": [
+        "debug|investigate|cross-stack|trace|logs|inspect"
+      ],
+      "owner": "codex",
+      "boost": 3,
+      "confidence": "high",
+      "reason": "Cross-stack investigation keyword."
+    },
+    {
+      "when_all": [
+        "architecture|review|design|audit|refactor|ci|release|security"
+      ],
+      "owner": "codex",
+      "boost": 2,
+      "confidence": "medium",
+      "reason": "Architecture/review keyword."
+    }
+  ],
+  "prompt": {
+    "constraints": [
+      "Do not use production for testing.",
+      "Do not run destructive commands.",
+      "Do not deploy, push, migrate, delete data, or change secrets without explicit approval.",
+      "Do not assume any AI app CLI/API access unless configured.",
+      "Preserve existing user changes.",
+      "Read relevant files before editing.",
+      "Prefer root-cause fixes over UI fallbacks.",
+      "Keep backend contracts and clients aligned."
+    ],
+    "deliverables": [
+      "Owner/module classification and why.",
+      "Relevant files inspected.",
+      "What you changed or found.",
+      "Exact files touched with short reason.",
+      "Verification commands and result.",
+      "Remaining blocker, risk, or follow-up."
+    ]
+  },
+  "role_presets": {
+    "planner": {
+      "label": "Planner",
+      "prefix": "Act as a planner first. Produce a phased implementation plan, identify dependencies and risks, and do not edit until the plan is clear."
+    },
+    "explorer": {
+      "label": "Explorer",
+      "prefix": "Act as a read-only explorer. Gather evidence, cite concrete files/symbols, and avoid proposing code changes unless asked."
+    },
+    "reviewer": {
+      "label": "Reviewer",
+      "prefix": "Act as a strict reviewer. Prioritize correctness, security, regressions, and missing tests. Lead with findings."
+    },
+    "security": {
+      "label": "Security Reviewer",
+      "prefix": "Act as a security reviewer. Check secrets, auth, authorization, injection, data exposure, payment/webhook integrity, and dependency risk before implementation."
+    },
+    "fixer": {
+      "label": "Fixer",
+      "prefix": "Act as an implementer. Make the smallest root-cause fix after inspecting the relevant files, then verify with safe local commands."
+    },
+    "release": {
+      "label": "Release Safety",
+      "prefix": "Act as a release-safety reviewer. Focus on migration risk, rollback, CI, runtime health, and user-visible regressions."
+    }
+  },
+  "skill_library": {
+    "daily": [
+      {
+        "id": "verification-loop",
+        "description": "Run build/test/lint after every change.",
+        "keywords": [
+          "build",
+          "test",
+          "verify",
+          "check",
+          "ci"
+        ]
+      }
+    ],
+    "library": [
+      {
+        "id": "backend-patterns",
+        "description": "NestJS/Prisma/Redis/API patterns.",
+        "keywords": [
+          "nestjs",
+          "prisma",
+          "redis",
+          "service",
+          "api",
+          "controller",
+          "dto",
+          "bull",
+          "queue"
+        ]
+      },
+      {
+        "id": "frontend-patterns",
+        "description": "React/Next.js/Flutter UI patterns.",
+        "keywords": [
+          "react",
+          "next",
+          "flutter",
+          "component",
+          "widget",
+          "hook",
+          "ui",
+          "screen",
+          "tailwind"
+        ]
+      },
+      {
+        "id": "security-review",
+        "description": "Auth/input/CORS/secret security checklist.",
+        "keywords": [
+          "security",
+          "auth",
+          "jwt",
+          "token",
+          "secret",
+          "cors",
+          "guard",
+          "permission",
+          "rbac"
+        ]
+      },
+      {
+        "id": "payment-integration",
+        "description": "Razorpay/UPI/QR payment flow patterns.",
+        "keywords": [
+          "razorpay",
+          "upi",
+          "qr",
+          "payment",
+          "webhook",
+          "capture",
+          "vpa",
+          "order",
+          "pg"
+        ]
+      },
+      {
+        "id": "docker-patterns",
+        "description": "Docker/compose health, networking, volumes.",
+        "keywords": [
+          "docker",
+          "compose",
+          "container",
+          "health",
+          "volume",
+          "network",
+          "redis",
+          "postgres"
+        ]
+      },
+      {
+        "id": "debugging-patterns",
+        "description": "Systematic debug: reproduce→trace→isolate→fix.",
+        "keywords": [
+          "debug",
+          "error",
+          "crash",
+          "trace",
+          "investigate",
+          "stack",
+          "exception",
+          "log"
+        ]
+      },
+      {
+        "id": "api-design",
+        "description": "REST naming, versioning, DTOs, error responses.",
+        "keywords": [
+          "api",
+          "rest",
+          "endpoint",
+          "dto",
+          "versioning",
+          "openapi",
+          "swagger",
+          "design"
+        ]
+      },
+      {
+        "id": "tdd-workflow",
+        "description": "Red→Green→Refactor TDD cycle.",
+        "keywords": [
+          "tdd",
+          "test",
+          "jest",
+          "pytest",
+          "coverage",
+          "spec",
+          "mock",
+          "unit"
+        ]
+      },
+      {
+        "id": "continuous-learning",
+        "description": "Extract patterns from completed tasks.",
+        "keywords": [
+          "learn",
+          "pattern",
+          "extract",
+          "improve",
+          "memory"
+        ]
+      }
+    ]
+  }
+}
